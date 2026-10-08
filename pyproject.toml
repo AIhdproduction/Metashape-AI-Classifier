@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=75,<81", "wheel>=0.45,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msam3"
+version = "0.1.0"
+description = "SAM 3 semantic classification for Metashape outdoor point clouds"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = {file = "LICENSE"}
+authors = [{name = "AIhdproduction"}]
+dependencies = [
+  "numpy>=1.26.4,<2", "scipy>=1.15.3,<1.16", "pydantic>=2.12.5,<3",
+  "PyYAML>=6.0.2,<7", "Pillow>=12.1.1,<13", "laspy>=2.5.4,<2.7",
+  "pyproj>=3.7.1,<3.8", "torch>=2.7.1,<2.8", "torchvision>=0.22.1,<0.23",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.5", "ruff==0.11.13"]
+sam = [
+  "sam3 @ git+https://github.com/facebookresearch/sam3.git@0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc",
+  "einops>=0.8.1,<0.9", "decord>=0.6.0,<0.7", "pycocotools>=2.0.10,<3",
+]
+
+[project.scripts]
+msam3 = "msam3.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AIhdproduction/metashape-sam3-classifier"
+Repository = "https://github.com/AIhdproduction/metashape-sam3-classifier"
+Issues = "https://github.com/AIhdproduction/metashape-sam3-classifier/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"metashape_scripts/*.py" = ["E402"]

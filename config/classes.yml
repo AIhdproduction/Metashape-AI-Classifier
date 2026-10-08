@@ -1,0 +1,42 @@
+unknown_code: 1
+custom_code_start: 64
+classes:
+  - name: ground
+    code: 2
+    prompts: [ground, terrain, soil, bare earth]
+  - name: road
+    code: 11
+    prompts: [road, street, asphalt, carriageway]
+  - name: sidewalk
+    prompts: [sidewalk, footpath, pedestrian path, pavement]
+  - name: curb
+    prompts: [curb, kerb, curb stone, edge stone]
+  - name: low_vegetation
+    code: 3
+    prompts: [low vegetation, grass, shrubs, bushes]
+  - name: tree
+    code: 5
+    prompts: [tree, tall vegetation, tree canopy, foliage]
+  - name: building
+    code: 6
+    prompts: [building, house, facade, exterior wall]
+  - name: vehicle
+    prompts: [vehicle, car, van, truck]
+  - name: construction_machinery
+    prompts: [construction machinery, excavator, digger, bulldozer, loader]
+  - name: utility_pole
+    prompts: [utility pole, light pole, streetlight, lamp post]
+  - name: traffic_sign
+    prompts: [traffic sign, road sign, signpost]
+  - name: fence
+    prompts: [fence, barrier, railing, gate]
+  - name: power_line
+    code: 14
+    prompts: [overhead power line, utility wire, cable]
+  - name: scaffolding
+    prompts: [scaffolding, construction scaffold]
+  - name: construction_material
+    prompts: [construction container, site container, building material, construction material]
+  - name: water
+    code: 9
+    prompts: [water, pond, stream, puddle]

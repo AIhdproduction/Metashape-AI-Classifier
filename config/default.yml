@@ -1,0 +1,48 @@
+metashape:
+  exe: "C:/Program Files/Agisoft/Metashape Pro/metashape.exe" # Professional executable.
+  chunks: [] # Empty selects all enabled chunks.
+  imported_label: "SAM3 classified" # New asset label.
+  make_default: false # Keep the original default unless enabled.
+  offscreen: auto # Windows uses -r alone if Qt offscreen is unavailable.
+paths:
+  model: "models/sam3.pt" # Local checkpoint; never downloaded automatically.
+  work_dir: "work" # Intermediate data, grouped by project path hash.
+  output_dir: "output" # Final LAS and legends, grouped by project.
+  image_path_remap: {} # Prefix mapping, e.g. {"D:/old/": "E:/new/"}.
+gpu:
+  device: "cuda:0" # CUDA device for production runs.
+  dtype: "bfloat16" # bfloat16 or float16 autocast.
+  min_vram_gb: 16 # Warn below this many GiB.
+sam:
+  input_size: 1008 # SAM 3 tile size.
+  image_scale: 1.0 # Global image resampling before tiling.
+  tile_overlap: 0.2 # Fraction shared by adjacent tiles.
+  instance_conf_threshold: 0.3 # Minimum ungated instance confidence.
+  background_threshold: 0.3 # Minimum fused pixel confidence.
+cache:
+  scale: 0.5 # Cached dimensions relative to the original image.
+validation:
+  max_reprojection_px: 0.5 # Hard maximum pixel error.
+  max_tie_to_dense_m: 0.10 # Hard maximum median nearest distance.
+visibility:
+  mode: zbuffer # zbuffer, or externally prepared calibrated depth_maps.
+  zbuffer_scale: 0.25 # Resolution relative to the original image.
+  splat_px: 2 # Radius in reduced-resolution pixels.
+  rel_tolerance: 0.02 # Relative depth slack.
+  abs_tolerance_m: 0.05 # Absolute depth slack in metres.
+voting:
+  voxel_size_m: 0.03 # One original representative per metric voxel.
+  block_size_m: 10.0 # Spatial block edge length in metres.
+  min_views: 3 # Minimum known, positive-confidence observations.
+  min_share: 0.4 # Winning class weight / total weight.
+  use_incidence_weight: false # Requires LAS normal extra dimensions.
+  max_ram_gb: 16 # Vote-matrix memory budget in GiB.
+  batch_points: 500000 # Bounded projection, I/O, and propagation batches.
+  voxel_buckets: 256 # Disk partitions for bounded-memory voxel selection.
+smoothing:
+  enabled: false # Optional voting-cloud kNN majority smoothing.
+  k: 8 # Number of neighbours, including the point itself.
+  max_share_to_change: 0.6 # Only change lower-share decided points.
+debug:
+  save_overlays: false # Draw validation projections on raw image pixels.
+  overlay_every_n: 25 # Overlay every Nth exported camera.
