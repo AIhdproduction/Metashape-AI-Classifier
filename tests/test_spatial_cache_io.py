@@ -1,0 +1,58 @@
+import laspy
+import numpy as np
+import pytest
+
+from msam3.cache import LabelCache
+from msam3.camera_model import Camera
+from msam3.config import Classes
+from msam3.pointcloud.las_io import merge_class_exports
+from msam3.pointcloud.spatial import spatial_blocks, voxel_representatives
+
+
+def test_voxels_cross_batch_and_negative(tmp_path):
+    points = np.array([[0, 0, 0], [0.01, 0, 0], [1, 0, 0], [-0.01, 0, 0], [1.01, 0, 0]])
+    first = voxel_representatives(points, 0.03, tmp_path, batch_size=2, buckets=3)
+    assert first.tolist() == [0, 2, 3]
+
+
+def test_block_covering_entire_image_not_culled():
+    camera = Camera(1, 20, 20, np.eye(4), {"f": 10})
+    points = np.array([[-20, -20, 10], [20, 20, 10], [0, 0, 10]], dtype=float)
+    blocks = spatial_blocks(points, 100)
+    selected = np.concatenate(list(blocks.batches(camera, np.eye(4), 100)))
+    assert 2 in selected
+
+
+def test_cache_corruption_and_model_change(tmp_path):
+    cache = LabelCache(tmp_path, "config", "model")
+    identity = {"size": [2, 2]}
+    labels = np.array([[0, 255], [1, 1]], np.uint8)
+    cache.save("a", labels, np.ones((2, 2), np.float32), identity)
+    assert cache.load("a", identity) is not None
+    (tmp_path / "a.labels.png").write_bytes(b"broken")
+    assert cache.load("a", identity) is None
+
+
+def test_merge_metashape_class_partitions(tmp_path):
+    classes = Classes.model_validate(
+        {"classes": [{"name": "custom", "code": 64, "prompts": ["custom"]}]}
+    )
+    source = laspy.create(point_format=2, file_version="1.2")
+    source.x = [1.0, 2.0]
+    source.y, source.z = [0.0, 0.0], [0.0, 0.0]
+    source.classification = [0, 0]  # Native export wraps 64 -> 0.
+    path = tmp_path / "class64.las"
+    source.write(path)
+    output = tmp_path / "final.las"
+    counts = merge_class_exports(
+        [{"path": str(path), "code": 64, "count": 2}],
+        output,
+        classes,
+        'LOCAL_CS["Local",UNIT["metre",1]]',
+        1,
+    )
+    result = laspy.read(output)
+    assert list(result.classification) == [64, 64]
+    assert counts[64] == 2
+    with pytest.raises(ValueError, match="count"):
+        merge_class_exports([{"path": str(path), "code": 64, "count": 3}], output, classes, "", 1)
