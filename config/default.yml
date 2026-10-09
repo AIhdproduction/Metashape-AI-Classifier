@@ -15,8 +15,8 @@ gpu:
   min_vram_gb: 16 # Warn below this many GiB.
 sam:
   input_size: 1008 # SAM 3 tile size.
-  prompt_batch_size: 4 # Text prompts per decoder batch; reduce to 1 for lower VRAM.
-  image_scale: 1.0 # Global image resampling before tiling.
+  prompt_batch_size: 8 # Text prompts per decoder batch; reduces runtime on 24 GiB GPUs.
+  image_scale: 0.75 # Faster 75% image processing; retain enough detail for outdoor surveying.
   tile_overlap: 0.2 # Fraction shared by adjacent tiles.
   instance_conf_threshold: 0.3 # Minimum ungated instance confidence.
   background_threshold: 0.3 # Minimum fused pixel confidence.

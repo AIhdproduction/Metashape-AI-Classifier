@@ -150,12 +150,15 @@ captured and diagnostic tails included on failure.
 ### Metashape GUI launcher
 
 `start_in_metashape.py` is a second entry point for users who prefer **Tools → Run Script**.
-It deliberately does not use a second Metashape process or custom Qt event loop. The open GUI
-document saves once, runs the existing stage-1 exporter against that document, waits while a
-separate `.venv` Python process performs stage 2 only, then runs stage 3 against the same open
-document. The worker never imports Metashape and never opens the project. This prevents project
-lock contention and avoids relying on nested Qt loops in the embedded interpreter. The GUI script
-selects the verified imported asset and requests `PointCloudViewClassification` after stage 3.
+It deliberately does not use a second Metashape process. A nonblocking PySide2 dialog, supported by
+Metashape's embedded Qt runtime, owns a `QProcess` for stage 2 and a timer that consumes the
+worker's log. The dialog therefore remains responsive and displays image count, percentage,
+elapsed time and an estimate of remaining time while the GPU is working. The open GUI document
+saves once, runs the existing stage-1 exporter against that document, starts the separate `.venv`
+Python process for stage 2 only, then runs stage 3 against the same open document. The worker
+never imports Metashape and never opens the project. This prevents project-lock contention. The
+GUI script selects the verified imported asset and requests `PointCloudViewClassification` after
+stage 3.
 
 ## Metashape calls and attributes used
 
