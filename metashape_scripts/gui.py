@@ -26,7 +26,7 @@ def run_worker(action, session):
     environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONUNBUFFERED"] = "1"
     with log_path.open("w", encoding="utf-8") as stream:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [
                 str(ROOT / ".venv/Scripts/python.exe"),
                 "-u",
@@ -43,7 +43,26 @@ def run_worker(action, session):
             stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    if completed.returncode:
+        if action == "stage2":
+            subprocess.Popen(
+                [
+                    str(ROOT / ".venv/Scripts/python.exe"),
+                    "-m",
+                    "msam3.gui_progress",
+                    "--session",
+                    str(session),
+                    "--pid",
+                    str(process.pid),
+                ],
+                cwd=str(ROOT),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        returncode = process.wait()
+    write_json(session / (action + "_status.json"), {"returncode": returncode})
+    if returncode:
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         raise RuntimeError("\n".join(lines[-18:]) or "Der Hintergrundprozess ist fehlgeschlagen.")
 
