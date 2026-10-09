@@ -13,9 +13,32 @@ from msam3.cache import atomic_json
 from msam3.config import Classes
 
 
+def class_palette(classes: Classes) -> np.ndarray:
+    """Return a 16-bit RGB lookup suitable for LAS point-color dimensions."""
+    colors = np.tile(np.array([128, 128, 128], dtype=np.uint16), (256, 1))
+    colors[classes.unknown_code] = _hex_rgb(classes.unknown_color)
+    for item in classes.classes:
+        colors[item.code] = _hex_rgb(item.color)
+    return colors * 257
+
+
+def _hex_rgb(value: str) -> np.ndarray:
+    return np.array([int(value[index : index + 2], 16) for index in (1, 3, 5)], dtype=np.uint16)
+
+
+def apply_class_colors(records, labels, palette):
+    colors = palette[np.asarray(labels, dtype=np.uint8)]
+    records.red, records.green, records.blue = colors.T
+
+
 def legend(classes: Classes) -> list[dict]:
     return [
-        {"name": "Unclassified", "code": classes.unknown_code, "prompts": []},
+        {
+            "name": "Unclassified",
+            "code": classes.unknown_code,
+            "prompts": [],
+            "color": classes.unknown_color,
+        },
         *[cls.model_dump() for cls in classes.classes],
     ]
 
@@ -25,7 +48,7 @@ def write_legends(directory: Path, classes: Classes) -> None:
     rows = legend(classes)
     atomic_json(directory / "class_legend.json", rows)
     with (directory / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["name", "code", "prompts"])
+        writer = csv.DictWriter(stream, fieldnames=["name", "code", "color", "prompts"])
         writer.writeheader()
         writer.writerows({**row, "prompts": " | ".join(row["prompts"])} for row in rows)
 
@@ -75,6 +98,7 @@ def write_classified(source: Path, output: Path, codes, classes: Classes, batch_
     output.parent.mkdir(parents=True, exist_ok=True)
     temp = output.with_suffix(".tmp.las")
     counts = np.zeros(256, dtype=np.int64)
+    palette = class_palette(classes)
     with laspy.open(source) as reader:
         if reader.header.point_count != len(codes):
             raise ValueError("Classification count does not match the source LAS")
@@ -85,6 +109,7 @@ def write_classified(source: Path, output: Path, codes, classes: Classes, batch_
                 converted = convert_records(points, header)
                 labels = np.asarray(codes[offset : offset + len(points)], dtype=np.uint8)
                 converted.classification = labels
+                apply_class_colors(converted, labels, palette)
                 writer.write_points(converted)
                 counts += np.bincount(labels, minlength=256)
                 offset += len(points)
@@ -116,12 +141,15 @@ def merge_class_exports(
     output.parent.mkdir(parents=True, exist_ok=True)
     temp = output.with_suffix(".tmp.las")
     counts = np.zeros(256, dtype=np.int64)
+    palette = class_palette(classes)
     with laspy.open(temp, mode="w", header=header) as writer:
         for part in parts:
             with laspy.open(part["path"]) as reader:
                 for points in reader.chunk_iterator(batch_size):
                     converted = convert_records(points, header)
-                    converted.classification = np.full(len(points), part["code"], dtype=np.uint8)
+                    labels = np.full(len(points), part["code"], dtype=np.uint8)
+                    converted.classification = labels
+                    apply_class_colors(converted, labels, palette)
                     writer.write_points(converted)
                     counts[part["code"]] += len(points)
     temp.replace(output)

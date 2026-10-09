@@ -107,7 +107,10 @@ def test_stage2_end_to_end_and_voting_only(package):
     assert np.mean(las.classification == expected) > 0.95
     original = laspy.read(directory / "dense.las")
     np.testing.assert_array_equal(las.X, original.X)
-    np.testing.assert_array_equal(las.red, original.red)
+    # Classification export intentionally replaces image RGB with the configured class palette.
+    assert set(las.red) == {128 * 257}
+    assert set(las.green) == {128 * 257}
+    assert set(las.blue) == {128 * 257}
     assert str(las.header.version) == "1.4" and las.header.point_format.id == 7
     lookup = next(v for v in las.vlrs if v.user_id == "LASF_Spec" and v.record_id == 0)
     assert lookup[64] == "custom"

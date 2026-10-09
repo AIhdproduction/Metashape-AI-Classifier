@@ -35,7 +35,7 @@ def test_cache_corruption_and_model_change(tmp_path):
 
 def test_merge_metashape_class_partitions(tmp_path):
     classes = Classes.model_validate(
-        {"classes": [{"name": "custom", "code": 64, "prompts": ["custom"]}]}
+        {"classes": [{"name": "custom", "code": 64, "prompts": ["custom"], "color": "#123456"}]}
     )
     source = laspy.create(point_format=2, file_version="1.2")
     source.x = [1.0, 2.0]
@@ -53,6 +53,9 @@ def test_merge_metashape_class_partitions(tmp_path):
     )
     result = laspy.read(output)
     assert list(result.classification) == [64, 64]
+    assert list(result.red) == [0x12 * 257, 0x12 * 257]
+    assert list(result.green) == [0x34 * 257, 0x34 * 257]
+    assert list(result.blue) == [0x56 * 257, 0x56 * 257]
     assert counts[64] == 2
     with pytest.raises(ValueError, match="count"):
         merge_class_exports([{"path": str(path), "code": 64, "count": 3}], output, classes, "", 1)

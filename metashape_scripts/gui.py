@@ -86,7 +86,7 @@ def run_worker(action, session):
         raise RuntimeError("\n".join(lines[-18:]) or "Der Hintergrundprozess ist fehlgeschlagen.")
 
 
-def select_classified_asset(document, result):
+def select_classified_asset(document, result, display_mode):
     current_key = document.chunk.key if document.chunk is not None else None
     entry = next(
         (item for item in result["chunks"] if item["chunk_key"] == current_key), result["chunks"][0]
@@ -96,9 +96,14 @@ def select_classified_asset(document, result):
     chunk.point_cloud = asset
     document.chunk = chunk
     Metashape.app.model_view.view_mode = Metashape.PointCloudData
-    Metashape.app.model_view.point_cloud_view_mode = (
-        Metashape.Application.ModelView.PointCloudViewClassification
-    )
+    if display_mode == "class_palette":
+        Metashape.app.model_view.point_cloud_view_mode = (
+            Metashape.Application.ModelView.PointCloudViewColor
+        )
+    else:
+        Metashape.app.model_view.point_cloud_view_mode = (
+            Metashape.Application.ModelView.PointCloudViewClassification
+        )
     Metashape.app.update()
 
 
@@ -157,10 +162,11 @@ def start():
             (Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8")
         )
         run_worker("finalize", session)
-        select_classified_asset(document, result)
+        select_classified_asset(document, result, job["settings"]["metashape"]["display_mode"])
         write_json(session / "launcher_status.json", {"phase": "complete"})
         Metashape.app.messageBox(
-            "SAM 3 ist fertig. Die neue Punktwolke 'SAM3 classified' ist nach Klassen dargestellt."
+            "SAM 3 ist fertig. Die neue Punktwolke 'SAM3 classified' "
+            "zeigt die konfigurierte Klassenpalette."
         )
     except UserCancelled:
         if session is not None:

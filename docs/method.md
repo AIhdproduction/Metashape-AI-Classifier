@@ -168,13 +168,19 @@ document. A separate topmost Windows progress window displays the image count, p
 elapsed time and estimate of remaining time while the GPU is working. The worker never imports
 Metashape and never opens the project. This prevents project-lock contention and avoids nested Qt
 loops in Metashape's embedded interpreter. The GUI script selects the verified imported asset and
-requests `PointCloudViewClassification` after stage 3.
+uses its configured display mode after stage 3. The default `class_palette` mode shows RGB values
+from `config/classes.yml` in `PointCloudViewColor`; `classification` retains Metashape's built-in
+class-colour view.
 
 The status window offers **Abbrechen** while the independent preparation or GPU-classification
 worker is running. It terminates that worker, leaves the original point cloud selected and imports
 no partial asset. A successful one-click run writes the lossless LAS file beside the saved project
 as `export/punktwolke_class.las`, then imports the same classification into Metashape. Temporary
 work data remains in the repository work directory, rather than beside the project.
+
+Each semantic class and the unknown class has a `#RRGGBB` `color` in `config/classes.yml`. Those
+values are written into the LAS RGB dimensions during classification and final class-partition
+assembly, so the same palette is present in the standalone LAS and in the imported asset.
 
 ## Metashape calls and attributes used
 

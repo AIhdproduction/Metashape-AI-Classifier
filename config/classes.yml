@@ -1,42 +1,59 @@
 unknown_code: 1
+unknown_color: "#808080"
 custom_code_start: 64
 classes:
   - name: ground
     code: 2
     prompts: [ground, terrain, soil, bare earth]
+    color: "#A67C52"
   - name: road
     code: 11
     prompts: [road, street, asphalt, carriageway]
+    color: "#4A4A4A"
   - name: sidewalk
     prompts: [sidewalk, footpath, pedestrian path, pavement]
+    color: "#C7C7C7"
   - name: curb
     prompts: [curb, kerb, curb stone, edge stone]
+    color: "#F4A261"
   - name: low_vegetation
     code: 3
     prompts: [low vegetation, grass, shrubs, bushes]
+    color: "#7CB342"
   - name: tree
     code: 5
     prompts: [tree, tall vegetation, tree canopy, foliage]
+    color: "#1B5E20"
   - name: building
     code: 6
     prompts: [building, house, facade, exterior wall]
+    color: "#E76F51"
   - name: vehicle
     prompts: [vehicle, car, van, truck]
+    color: "#F9C74F"
   - name: construction_machinery
     prompts: [construction machinery, excavator, digger, bulldozer, loader]
+    color: "#F8961E"
   - name: utility_pole
     prompts: [utility pole, light pole, streetlight, lamp post]
+    color: "#6D597A"
   - name: traffic_sign
     prompts: [traffic sign, road sign, signpost]
+    color: "#E63946"
   - name: fence
     prompts: [fence, barrier, railing, gate]
+    color: "#8D6E63"
   - name: power_line
     code: 14
     prompts: [overhead power line, utility wire, cable]
+    color: "#5E60CE"
   - name: scaffolding
     prompts: [scaffolding, construction scaffold]
+    color: "#9E9E9E"
   - name: construction_material
     prompts: [construction container, site container, building material, construction material]
+    color: "#C97C5D"
   - name: water
     code: 9
     prompts: [water, pond, stream, puddle]
+    color: "#219EBC"

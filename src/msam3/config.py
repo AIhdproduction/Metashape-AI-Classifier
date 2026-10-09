@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 Probability = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 Code = Annotated[int, Field(ge=0, le=255, strict=True)]
+HexColor = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$")]
 
 
 class StrictModel(BaseModel):
@@ -20,6 +21,7 @@ class SemanticClass(StrictModel):
     name: Annotated[str, Field(min_length=1, pattern=r"^[a-z][a-z0-9_]*$")]
     code: Code | None = None
     prompts: Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1)]
+    color: HexColor = "#808080"
 
     @model_validator(mode="after")
     def check_prompts(self):
@@ -30,6 +32,7 @@ class SemanticClass(StrictModel):
 
 class Classes(StrictModel):
     unknown_code: Code = 1
+    unknown_color: HexColor = "#808080"
     custom_code_start: Code = 64
     classes: Annotated[list[SemanticClass], Field(min_length=1, max_length=255)]
 
@@ -62,6 +65,7 @@ class MetashapeConfig(StrictModel):
     chunks: list[str] = Field(default_factory=list)
     imported_label: str = "SAM3 classified"
     make_default: bool = False
+    display_mode: Literal["classification", "class_palette"] = "class_palette"
     offscreen: Literal["auto", "always", "never"] = "auto"
 
 

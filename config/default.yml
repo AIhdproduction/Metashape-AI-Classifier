@@ -2,6 +2,7 @@ metashape:
   exe: "C:/Program Files/Agisoft/Metashape Pro/metashape.exe" # Professional executable.
   chunks: [] # Empty selects all enabled chunks.
   imported_label: "SAM3 classified" # New asset label.
+  display_mode: class_palette # Show configured class RGB colors in the Metashape point-color view.
   make_default: false # Keep the original default unless enabled.
   offscreen: auto # Windows uses -r alone if Qt offscreen is unavailable.
 paths:
