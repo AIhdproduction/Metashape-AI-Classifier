@@ -1,59 +1,59 @@
 unknown_code: 1
-unknown_color: "#808080"
+unknown_color: "#787878" # Cyclone 3DR 2026.1: Unclassified (class 1).
 custom_code_start: 64
 classes:
   - name: ground
     code: 2
     prompts: [ground, terrain, soil, bare earth]
-    color: "#A67C52"
+    color: "#663300" # Cyclone 3DR: Ground (class 2).
   - name: road
     code: 11
     prompts: [road, street, asphalt, carriageway]
-    color: "#4A4A4A"
+    color: "#A0A0A4" # Cyclone 3DR: Road Surface (class 11).
   - name: sidewalk
     prompts: [sidewalk, footpath, pedestrian path, pavement]
-    color: "#C7C7C7"
+    color: "#C8C8C8" # Cyclone 3DR: Side walk (class 73).
   - name: curb
     prompts: [curb, kerb, curb stone, edge stone]
-    color: "#F4A261"
+    color: "#A51464" # Cyclone 3DR: Curbstone (class 74).
   - name: low_vegetation
     code: 3
     prompts: [low vegetation, grass, shrubs, bushes]
-    color: "#7CB342"
+    color: "#009600" # Cyclone 3DR: Low Vegetation (class 3).
   - name: tree
     code: 5
     prompts: [tree, tall vegetation, tree canopy, foliage]
-    color: "#1B5E20"
+    color: "#004100" # Cyclone 3DR: Tree (class 93).
   - name: building
     code: 6
     prompts: [building, house, facade, exterior wall]
-    color: "#E76F51"
+    color: "#FF0000" # Cyclone 3DR: Building (class 6).
   - name: vehicle
     prompts: [vehicle, car, van, truck]
-    color: "#F9C74F"
+    color: "#F07314" # Cyclone 3DR: Vehicle (class 91).
   - name: construction_machinery
     prompts: [construction machinery, excavator, digger, bulldozer, loader]
-    color: "#F8961E"
+    color: "#F1C232" # Cyclone 3DR: Worksite equipment (class 151).
   - name: utility_pole
     prompts: [utility pole, light pole, streetlight, lamp post]
-    color: "#6D597A"
+    color: "#642929" # Cyclone 3DR: Pole (class 84).
   - name: traffic_sign
     prompts: [traffic sign, road sign, signpost]
-    color: "#E63946"
+    color: "#6927BB" # Cyclone 3DR: Rail/Road sign (class 81).
   - name: fence
     prompts: [fence, barrier, railing, gate]
-    color: "#8D6E63"
+    color: "#FFF582" # Cyclone 3DR: HCS fencing (class 177).
   - name: power_line
     code: 14
     prompts: [overhead power line, utility wire, cable]
-    color: "#5E60CE"
+    color: "#FFFF00" # Cyclone 3DR: Wire - Conductor (class 14).
   - name: scaffolding
     prompts: [scaffolding, construction scaffold]
-    color: "#9E9E9E"
+    color: "#6973DC" # Cyclone 3DR: Steel structure (class 110).
   - name: construction_material
     prompts: [construction container, site container, building material, construction material]
-    color: "#C97C5D"
+    color: "#BEFFE1" # Cyclone 3DR: HCS construction material (class 180).
   - name: water
     code: 9
     prompts: [water, pond, stream, puddle]
-    color: "#219EBC"
+    color: "#0000B4" # Cyclone 3DR: Water (class 9).
