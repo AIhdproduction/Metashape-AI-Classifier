@@ -119,6 +119,22 @@ Keep a normal project backup, particularly for the first real run.
 
 ## Run and resume
 
+### Start directly in Metashape
+
+Open the saved project in Metashape Professional and select **Tools → Run Script**. Choose
+[`start_in_metashape.py`](start_in_metashape.py) in this repository. It saves the open project,
+exports it from the running Metashape session, performs validation and SAM 3 classification with
+the installed `.venv`, then imports a new **SAM3 classified** asset into the same open project.
+It selects that asset and changes the view to **Classification** when finished. Keep Metashape
+open while it runs; the Console pane shows the current stage. The interface is unavailable during
+the GPU stage, which prevents editing the project while its export is being classified.
+
+This launcher does not start another Metashape instance and does not open the project a second
+time. The original point-cloud asset is preserved. If a stage fails, no unverified classified
+asset is saved; check the displayed error and the work-folder log.
+
+### PowerShell alternative
+
 Run the geometry checks first; this does not require model weights or a GPU:
 
 ```powershell

@@ -9,7 +9,7 @@ from the outstanding real-project acceptance test.
 - Fresh virtual environment and editable package installation succeeded.
 - `install.bat --no-pause` completed, including official SAM 3 imports, CUDA detection,
   dependency consistency and the class-list command. Rerunning repairs CPU-only PyTorch.
-- `ruff check .`: passed. `pytest -q`: 29 passed. `pip check`: no broken requirements.
+- `ruff check .`: passed. `pytest -q`: 30 passed. `pip check`: no broken requirements.
 - The synthetic pipeline recovered more than 95% of known labels, preserved coordinates
   and colors, and passed cache corruption, interruption/resume, projection, visibility,
   class-code and LAS-partition checks without requiring model weights or Metashape.
@@ -27,6 +27,10 @@ from the outstanding real-project acceptance test.
   128-point stage-3 import/export/save check preserved class counts for ground and a custom
   code. Tests of codes 0–255 established the import/export limitations documented in
   [method.md](method.md#custom-las-codes-observed-behavior).
+- The direct-launcher module imported successfully in Metashape Professional 2.3.1's embedded
+  Python interpreter without opening a project. It uses no custom Qt widget or second
+  Metashape process. A complete interactive run remains subject to the real-project acceptance
+  test below.
 
 ## Real-project acceptance test: blocked by licensing
 

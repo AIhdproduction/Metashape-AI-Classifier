@@ -147,6 +147,16 @@ lock prevents overlapping msam3 processes. Metashape lock files are never remove
 Subprocess success requires both zero exit status and a fresh completion marker. Logs are
 captured and diagnostic tails included on failure.
 
+### Metashape GUI launcher
+
+`start_in_metashape.py` is a second entry point for users who prefer **Tools → Run Script**.
+It deliberately does not use a second Metashape process or custom Qt event loop. The open GUI
+document saves once, runs the existing stage-1 exporter against that document, waits while a
+separate `.venv` Python process performs stage 2 only, then runs stage 3 against the same open
+document. The worker never imports Metashape and never opens the project. This prevents project
+lock contention and avoids relying on nested Qt loops in the embedded interpreter. The GUI script
+selects the verified imported asset and requests `PointCloudViewClassification` after stage 3.
+
 ## Metashape calls and attributes used
 
 All entries below refer to the named sections in the 2.2.2 Python Reference; page numbers
