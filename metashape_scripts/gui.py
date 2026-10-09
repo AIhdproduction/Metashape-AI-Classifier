@@ -156,6 +156,7 @@ def start():
         result = json.loads(
             (Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8")
         )
+        run_worker("finalize", session)
         select_classified_asset(document, result)
         write_json(session / "launcher_status.json", {"phase": "complete"})
         Metashape.app.messageBox(

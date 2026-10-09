@@ -12,6 +12,7 @@ from pathlib import Path
 from msam3.cache import atomic_json, json_hash
 from msam3.config import Classes, Settings, load_classes, load_settings
 from msam3.driver import _execute, job_directory, job_lock, prepare_stage3_inputs, project_state
+from msam3.pointcloud.las_io import merge_class_exports
 from msam3.segmentation.sam3_backend import require_checkpoint
 
 LOG = logging.getLogger(__name__)
@@ -63,14 +64,39 @@ def stage2(session: Path) -> None:
     atomic_json(job_path, job)
 
 
+def finalize(session: Path) -> None:
+    """Assemble Metashape's class partitions into the lossless final LAS in the venv."""
+    job = json.loads((session / "job.json").read_text(encoding="utf-8"))
+    completed = json.loads((Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8"))
+    classes = Classes.model_validate(job["classes"])
+    inputs = {item["directory"]: item for item in job["stage3_inputs"]}
+    for result in completed["chunks"]:
+        source = inputs[result["directory"]]
+        counts = merge_class_exports(
+            result["parts"],
+            Path(result["output"]),
+            classes,
+            result["crs_wkt"],
+            job["settings"]["voting"]["batch_points"],
+        )
+        if int(counts.sum()) != sum(int(value) for value in source["counts"].values()):
+            raise RuntimeError("Final LAS point count differs from the imported point cloud")
+    atomic_json(
+        session / "finalize_done.json",
+        {"outputs": [item["output"] for item in completed["chunks"]]},
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("prepare", "stage2"))
+    parser.add_argument("action", choices=("prepare", "stage2", "finalize"))
     parser.add_argument("--session", type=Path, required=True)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        {"prepare": prepare, "stage2": stage2}[args.action](args.session.resolve())
+        {"prepare": prepare, "stage2": stage2, "finalize": finalize}[args.action](
+            args.session.resolve()
+        )
         return 0
     except Exception:
         LOG.exception("GUI worker failed")

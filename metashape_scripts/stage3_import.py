@@ -18,8 +18,6 @@ from metashape_scripts.common import (
     write_json,
     write_legends,
 )
-from msam3.config import Classes
-from msam3.pointcloud.las_io import merge_class_exports
 
 LOG = logging.getLogger("msam3.stage3")
 
@@ -44,7 +42,6 @@ def main(job, document=None, progress=None):
     if document is None:
         document = open_document(job["project"])
     results = []
-    classes = Classes.model_validate(job["classes"])
     chunk_count = len(job["stage3_inputs"])
     for entry in job["stage3_inputs"]:
         directory = Path(entry["directory"])
@@ -122,15 +119,6 @@ def main(job, document=None, progress=None):
             parts.append({"code": code, "count": count, "path": str(path)})
         write_legends(parts_dir, job["classes"])
         output = final_las_path(job, chunk, chunk_count)
-        merged_counts = merge_class_exports(
-            parts,
-            output,
-            classes,
-            chunk.crs.wkt,
-            job["settings"]["voting"]["batch_points"],
-        )
-        if int(merged_counts.sum()) != asset.point_count:
-            raise RuntimeError("Final LAS point count differs from the imported point cloud")
         results.append(
             {
                 "chunk_key": chunk.key,
