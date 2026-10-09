@@ -13,7 +13,7 @@ Code = Annotated[int, Field(ge=0, le=255, strict=True)]
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config = ConfigDict(extra="forbid", validate_assignment=True, allow_inf_nan=False)
 
 
 class SemanticClass(StrictModel):
@@ -80,6 +80,7 @@ class GPUConfig(StrictModel):
 
 class SAMConfig(StrictModel):
     input_size: Literal[1008] = 1008
+    prompt_batch_size: Annotated[int, Field(ge=1, le=16)] = 4
     image_scale: Annotated[float, Field(gt=0, le=1)] = 1.0
     tile_overlap: Annotated[float, Field(ge=0, lt=1)] = 0.2
     instance_conf_threshold: Probability = 0.3
