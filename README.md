@@ -117,30 +117,38 @@ Only enabled, aligned frame cameras are processed. Fisheye, spherical, unaligned
 cameras are counted in the logs. A chunk without an eligible camera or dense cloud is skipped.
 Keep a normal project backup, particularly for the first real run.
 
-## Run and resume
+## Start and resume
 
-### Start directly in Metashape
+Choose one of the following options. **Option 1 is the easiest option** and starts directly
+inside Metashape.
 
-Open the saved project in Metashape Professional and select **Tools → Run Script**. Choose
-[`start_in_metashape.py`](start_in_metashape.py) in this repository. It saves the open project,
-exports it from the running Metashape session, performs validation and SAM 3 classification with
-the installed `.venv`, then imports a new **SAM3 classified** asset into the same open project.
-It selects that asset and changes the view to **Classification** when finished. Keep Metashape
-open while it runs; the Console pane shows the current stage. The interface is unavailable during
-the GPU stage, which prevents editing the project while its export is being classified.
+### Option 1 — Metashape: Tools → Run Script
 
-This launcher does not start another Metashape instance and does not open the project a second
-time. The original point-cloud asset is preserved. If a stage fails, no unverified classified
-asset is saved; check the displayed error and the work-folder log.
+1. Open the saved project in Metashape Professional.
+2. Select **Tools → Run Script**.
+3. Choose [`start_in_metashape.py`](start_in_metashape.py) in this repository.
+4. Leave Metashape open until the completion message appears.
 
-### PowerShell alternative
+The script saves the open project, exports its point cloud, validates geometry, runs SAM 3, and
+imports a new **SAM3 classified** point-cloud asset into that same project. At the end it selects
+the asset and switches the model view to **Classification**. It uses the already installed
+`.venv`; it does not start another Metashape instance or reopen the project. The Metashape window
+is unavailable while the GPU is classifying images, which protects the project from edits during
+processing. The original point cloud is preserved.
 
-Run the geometry checks first; this does not require model weights or a GPU:
+### Option 2 — PowerShell
+
+Open PowerShell in the repository and run the geometry check first. This does not require model
+weights or a GPU:
 
 ```powershell
-python -m msam3 validate --project "D:\jobs\site\site.psx"
-python -m msam3 run --project "D:\jobs\site\site.psx"
+cd "D:\Help\01_Privat\metashape-sam3-classifier"
+.\.venv\Scripts\python.exe -m msam3 validate --project "D:\jobs\site\site.psx"
+.\.venv\Scripts\python.exe -m msam3 run --project "D:\jobs\site\site.psx"
 ```
+
+For PowerShell, save and close the project in Metashape first. The direct Metashape option above
+keeps it open instead.
 
 To process a particular chunk or use different settings:
 
