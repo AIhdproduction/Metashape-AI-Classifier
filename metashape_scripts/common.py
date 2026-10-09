@@ -138,13 +138,27 @@ def export_cloud(chunk, path, crs, key, classes=None, progress=None):
 
 
 def write_legends(directory, classes):
-    rows = [{"name": "Unclassified", "code": classes["unknown_code"], "prompts": []}]
+    rows = [
+        {
+            "name": "Unclassified",
+            "code": classes["unknown_code"],
+            "color": classes.get("unknown_color", "#808080"),
+            "prompts": [],
+        }
+    ]
     rows.extend(classes["classes"])
     write_json(Path(directory) / "class_legend.json", rows)
     with (Path(directory) / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["name", "code", "prompts"])
+        writer = csv.DictWriter(stream, fieldnames=["name", "code", "color", "prompts"])
         writer.writeheader()
-        writer.writerows(dict(row, prompts=" | ".join(row["prompts"])) for row in rows)
+        writer.writerows(
+            dict(
+                row,
+                color=row.get("color", classes.get("unknown_color", "#808080")),
+                prompts=" | ".join(row["prompts"]),
+            )
+            for row in rows
+        )
 
 
 def run_guarded(function):

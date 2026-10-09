@@ -1,3 +1,9 @@
+import csv
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
 import laspy
 import numpy as np
 import pytest
@@ -7,6 +13,32 @@ from msam3.camera_model import Camera
 from msam3.config import Classes
 from msam3.pointcloud.las_io import merge_class_exports
 from msam3.pointcloud.spatial import spatial_blocks, voxel_representatives
+
+
+def test_embedded_legend_writes_color_column(tmp_path, monkeypatch):
+    """Keep the stdlib-only Metashape helper compatible with palette-configured jobs."""
+    monkeypatch.setitem(sys.modules, "Metashape", types.ModuleType("Metashape"))
+    script = Path(__file__).parents[1] / "metashape_scripts" / "common.py"
+    spec = importlib.util.spec_from_file_location("test_metashape_common", script)
+    assert spec and spec.loader
+    common = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(common)
+
+    common.write_legends(
+        tmp_path,
+        {
+            "unknown_code": 1,
+            "unknown_color": "#787878",
+            "classes": [{"name": "ground", "code": 2, "color": "#663300", "prompts": ["ground"]}],
+        },
+    )
+
+    with (tmp_path / "class_legend.csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows == [
+        {"name": "Unclassified", "code": "1", "color": "#787878", "prompts": ""},
+        {"name": "ground", "code": "2", "color": "#663300", "prompts": "ground"},
+    ]
 
 
 def test_voxels_cross_batch_and_negative(tmp_path):
