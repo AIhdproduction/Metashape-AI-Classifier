@@ -14,6 +14,7 @@ from msam3.cache import LabelCache, atomic_json, json_hash
 from msam3.camera_model import project_torch
 from msam3.config import Classes, Settings
 from msam3.pointcloud.las_io import write_classified
+from msam3.pointcloud.postprocess import apply_postprocess
 from msam3.pointcloud.smoothing import smooth
 from msam3.pointcloud.spatial import (
     metric_cloud,
@@ -231,6 +232,15 @@ def process_chunk(
         shares,
         settings.smoothing,
         classes.unknown_code,
+        settings.voting.batch_points,
+    )
+    result = apply_postprocess(
+        points,
+        result,
+        shares,
+        classes,
+        settings.postprocess,
+        directory,
         settings.voting.batch_points,
     )
     output_start = time.perf_counter()

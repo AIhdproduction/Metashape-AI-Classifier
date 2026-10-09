@@ -126,10 +126,21 @@ normal-vector LAS extra dimensions; normals are transformed as covectors, normal
 compared with the viewing ray. Missing or invalid normals fail explicitly.
 
 The vote matrix becomes a NumPy memmap when it exceeds `max_ram_gb`. Decisions are made in
-batches: at least three positive known observations and winning share at least 0.4 are
-required. Optional kNN smoothing changes only low-share already-decided representatives
+batches: one positive known observation is sufficient, and the winning class is the class with
+the largest accumulated confidence across all visible images; its share must be at least 0.4.
+Repeated observations therefore add confidence to the same class. Optional kNN smoothing changes only low-share already-decided representatives
 when neighbours have a strict majority. A chunked cKDTree query propagates the resulting
 codes to every original point, preserving source point order and attributes in stage 2.
+
+## Post-SAM geometry filter
+
+After voting, the enabled `postprocess` configuration applies an NPI-style neighbourhood filter
+to the representative cloud. Per-class rules remove low-confidence isolated points and fill only
+small, low-confidence holes surrounded by a sufficient share of one class. The road rule rejects
+local planes steeper than 40 degrees before filling road holes. The building rule changes a point
+labelled ground to building only when it is horizontally close to several building points at least
+one metre below it, which protects flat roofs. A report is written below each chunk as
+`post_sam_filter/postprocess_report.json` before labels are propagated back to the full cloud.
 
 ## Cache and stage integrity
 

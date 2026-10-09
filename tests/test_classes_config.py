@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from msam3.config import Classes, Settings, load_classes
+from msam3.config import Classes, Settings, load_classes, load_settings
 
 
 def test_default_codes_and_append():
@@ -22,6 +22,12 @@ def test_default_codes_and_append():
     data = classes.model_dump()
     data["classes"].append({"name": "rock", "prompts": ["rock"]})
     assert Classes.model_validate(data).classes[-1].code == 73
+
+
+def test_postprocess_has_a_rule_for_every_default_class():
+    settings = load_settings()
+    classes = load_classes()
+    assert set(settings.postprocess.class_rules) == {item.name for item in classes.classes}
 
 
 @pytest.mark.parametrize(

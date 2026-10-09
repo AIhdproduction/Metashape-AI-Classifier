@@ -121,6 +121,44 @@ class SmoothingConfig(StrictModel):
     max_share_to_change: Probability = 0.6
 
 
+class ClassPostprocessRule(StrictModel):
+    """Neighbourhood requirements for one semantic class after image voting."""
+
+    min_same_neighbors: Annotated[int, Field(ge=0)] = 3
+    fill_neighbors: Annotated[int, Field(ge=1)] = 8
+    fill_share: Probability = 0.75
+    max_replaced_confidence: Probability = 0.55
+
+
+class BuildingPostprocessConfig(StrictModel):
+    enabled: bool = True
+    ground_class: str = "ground"
+    building_class: str = "building"
+    horizontal_radius_m: Positive = 0.75
+    min_vertical_drop_m: Annotated[float, Field(ge=0)] = 1.0
+    min_building_neighbors: Annotated[int, Field(ge=1)] = 4
+
+
+class RoadPostprocessConfig(StrictModel):
+    enabled: bool = True
+    road_class: str = "road"
+    max_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 40.0
+    plane_neighbors: Annotated[int, Field(ge=3)] = 12
+
+
+class PostprocessConfig(StrictModel):
+    """Conservative geometry cleanup applied after SAM image voting."""
+
+    enabled: bool = True
+    output_subdir: str = "post_sam_filter"
+    neighborhood_radius_m: Positive = 0.35
+    neighbors: Annotated[int, Field(ge=2, le=64)] = 16
+    npi_preserve_confidence: Probability = 0.9
+    class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
+    building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
+    road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)
+
+
 class DebugConfig(StrictModel):
     save_overlays: bool = False
     overlay_every_n: Annotated[int, Field(ge=1)] = 25
@@ -136,6 +174,7 @@ class Settings(StrictModel):
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     voting: VotingConfig = Field(default_factory=VotingConfig)
     smoothing: SmoothingConfig = Field(default_factory=SmoothingConfig)
+    postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
 
 

@@ -34,7 +34,7 @@ visibility:
 voting:
   voxel_size_m: 0.03 # One original representative per metric voxel.
   block_size_m: 10.0 # Spatial block edge length in metres.
-  min_views: 3 # Minimum known, positive-confidence observations.
+  min_views: 1 # One visible, positive-confidence observation is sufficient; confidence wins.
   min_share: 0.4 # Winning class weight / total weight.
   use_incidence_weight: false # Requires LAS normal extra dimensions.
   max_ram_gb: 16 # Vote-matrix memory budget in GiB.
@@ -44,6 +44,41 @@ smoothing:
   enabled: false # Optional voting-cloud kNN majority smoothing.
   k: 8 # Number of neighbours, including the point itself.
   max_share_to_change: 0.6 # Only change lower-share decided points.
+postprocess:
+  enabled: true # Apply the configurable geometry and neighbourhood cleanup after SAM voting.
+  output_subdir: "post_sam_filter" # Per-chunk report folder below work/.
+  neighborhood_radius_m: 0.35 # Metric neighbourhood for NPI outlier removal and hole filling.
+  neighbors: 16 # Nearest neighbours inspected per representative point.
+  npi_preserve_confidence: 0.9 # Keep very confident isolated detections.
+  class_rules:
+    ground: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.75, max_replaced_confidence: 0.55}
+    road: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.55}
+    sidewalk: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.75, max_replaced_confidence: 0.5}
+    curb: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    low_vegetation: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.75, max_replaced_confidence: 0.5}
+    tree: {min_same_neighbors: 3, fill_neighbors: 7, fill_share: 0.7, max_replaced_confidence: 0.5}
+    building: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.6}
+    vehicle: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    construction_machinery: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    utility_pole: {min_same_neighbors: 1, fill_neighbors: 4, fill_share: 0.7, max_replaced_confidence: 0.4}
+    traffic_sign: {min_same_neighbors: 1, fill_neighbors: 4, fill_share: 0.7, max_replaced_confidence: 0.4}
+    fence: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    power_line: {min_same_neighbors: 1, fill_neighbors: 4, fill_share: 0.7, max_replaced_confidence: 0.4}
+    scaffolding: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    construction_material: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    water: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.8, max_replaced_confidence: 0.45}
+  building:
+    enabled: true
+    ground_class: "ground"
+    building_class: "building"
+    horizontal_radius_m: 0.75
+    min_vertical_drop_m: 1.0
+    min_building_neighbors: 4
+  road:
+    enabled: true
+    road_class: "road"
+    max_slope_degrees: 40
+    plane_neighbors: 12
 debug:
   save_overlays: false # Draw validation projections on raw image pixels.
   overlay_every_n: 25 # Overlay every Nth exported camera.
