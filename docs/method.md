@@ -159,6 +159,12 @@ Metashape and never opens the project. This prevents project-lock contention and
 loops in Metashape's embedded interpreter. The GUI script selects the verified imported asset and
 requests `PointCloudViewClassification` after stage 3.
 
+The status window offers **Abbrechen** while the independent preparation or GPU-classification
+worker is running. It terminates that worker, leaves the original point cloud selected and imports
+no partial asset. A successful one-click run writes the lossless LAS file beside the saved project
+as `export/punktwolke_class.las`, then imports the same classification into Metashape. Temporary
+work data remains in the repository work directory, rather than beside the project.
+
 ## Metashape calls and attributes used
 
 All entries below refer to the named sections in the 2.2.2 Python Reference; page numbers

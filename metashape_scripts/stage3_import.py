@@ -18,14 +18,34 @@ from metashape_scripts.common import (
     write_json,
     write_legends,
 )
+from msam3.config import Classes
+from msam3.pointcloud.las_io import merge_class_exports
 
 LOG = logging.getLogger("msam3.stage3")
+
+
+def final_las_path(job, chunk, chunk_count):
+    """Choose the promised simple GUI filename without collisions for multi-chunk jobs."""
+    requested = job.get("final_las_name")
+    if requested and chunk_count == 1:
+        return Path(job["output_dir"]) / requested
+    filename = (
+        safe_name(Path(job["project"]).stem)
+        + "_"
+        + safe_name(chunk.label)
+        + "_"
+        + str(chunk.key)
+        + "_classified.las"
+    )
+    return Path(job["output_dir"]) / filename
 
 
 def main(job, document=None, progress=None):
     if document is None:
         document = open_document(job["project"])
     results = []
+    classes = Classes.model_validate(job["classes"])
+    chunk_count = len(job["stage3_inputs"])
     for entry in job["stage3_inputs"]:
         directory = Path(entry["directory"])
         metadata = json.loads((directory / "chunk.json").read_text(encoding="utf-8"))
@@ -101,14 +121,16 @@ def main(job, document=None, progress=None):
             export_cloud(chunk, path, chunk.crs, asset.key, classes=[code], progress=progress)
             parts.append({"code": code, "count": count, "path": str(path)})
         write_legends(parts_dir, job["classes"])
-        filename = (
-            safe_name(Path(job["project"]).stem)
-            + "_"
-            + safe_name(chunk.label)
-            + "_"
-            + str(chunk.key)
-            + "_classified.las"
+        output = final_las_path(job, chunk, chunk_count)
+        merged_counts = merge_class_exports(
+            parts,
+            output,
+            classes,
+            chunk.crs.wkt,
+            job["settings"]["voting"]["batch_points"],
         )
+        if int(merged_counts.sum()) != asset.point_count:
+            raise RuntimeError("Final LAS point count differs from the imported point cloud")
         results.append(
             {
                 "chunk_key": chunk.key,
@@ -116,7 +138,7 @@ def main(job, document=None, progress=None):
                 "parts": parts,
                 "crs_wkt": chunk.crs.wkt,
                 "directory": str(directory),
-                "output": str(Path(job["output_dir"]) / filename),
+                "output": str(output),
             }
         )
     # Every imported cloud has passed class preservation checks before saving.

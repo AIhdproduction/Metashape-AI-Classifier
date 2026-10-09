@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 _running = False
 
 
+class UserCancelled(RuntimeError):
+    """The operator requested cancellation from the independent progress window."""
+
+
 def worker_environment():
     environment = os.environ.copy()
     environment.pop("PYTHONHOME", None)
@@ -43,7 +47,10 @@ def launch_progress(session):
 
 def run_worker(action, session):
     """Run CUDA work in the installed venv and retain a concise error log."""
+    if (session / "cancel_requested.json").is_file():
+        raise UserCancelled("Vom Benutzer abgebrochen.")
     log_path = session / (action + ".log")
+    worker_path = session / "worker.json"
     environment = worker_environment()
     with log_path.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen(
@@ -63,9 +70,18 @@ def run_worker(action, session):
             stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        returncode = process.wait()
+        write_json(worker_path, {"pid": process.pid, "action": action})
+        try:
+            # Covers the brief race where the operator clicks cancel while this worker starts.
+            if (session / "cancel_requested.json").is_file():
+                process.terminate()
+            returncode = process.wait()
+        finally:
+            worker_path.unlink(missing_ok=True)
     write_json(session / (action + "_status.json"), {"returncode": returncode})
     if returncode:
+        if (session / "cancel_requested.json").is_file():
+            raise UserCancelled("Vom Benutzer abgebrochen.")
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         raise RuntimeError("\n".join(lines[-18:]) or "Der Hintergrundprozess ist fehlgeschlagen.")
 
@@ -144,6 +160,12 @@ def start():
         write_json(session / "launcher_status.json", {"phase": "complete"})
         Metashape.app.messageBox(
             "SAM 3 ist fertig. Die neue Punktwolke 'SAM3 classified' ist nach Klassen dargestellt."
+        )
+    except UserCancelled:
+        if session is not None:
+            write_json(session / "launcher_status.json", {"phase": "cancelled"})
+        Metashape.app.messageBox(
+            "SAM 3 wurde abgebrochen. Es wurde keine klassifizierte Punktwolke importiert."
         )
     except Exception as error:
         if session is not None:

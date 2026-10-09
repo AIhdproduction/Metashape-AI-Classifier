@@ -23,6 +23,7 @@ def prepare(session: Path) -> None:
     classes = load_classes()
     require_checkpoint(settings.paths.model)
     work = job_directory(project, settings)
+    export = project.parent / "export"
     work.mkdir(parents=True, exist_ok=True)
     identity = json_hash(
         {
@@ -36,7 +37,10 @@ def prepare(session: Path) -> None:
         "schema": 1,
         "project": str(project),
         "work_dir": str(work),
-        "output_dir": str(settings.paths.output_dir / work.name),
+        # The one-click Metashape workflow keeps its delivered LAS next to the project.
+        # Work data remains in the repository and never pollutes the project directory.
+        "output_dir": str(export),
+        "final_las_name": "punktwolke_class.las",
         "settings": settings.model_dump(mode="json"),
         "classes": classes.model_dump(),
         "stage1_identity": identity,

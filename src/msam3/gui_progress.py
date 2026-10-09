@@ -3,12 +3,15 @@
 import argparse
 import json
 import re
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
 from tkinter import StringVar, Tk, ttk
 
 import psutil
+
+from msam3.cache import atomic_json
 
 IMAGE_LINE = re.compile(
     r"^(?P<time>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ INFO .* image "
@@ -55,7 +58,7 @@ class ProgressWindow:
         self.root.title("SAM 3 – Metashape-Klassifikation")
         self.root.resizable(False, False)
         self.root.attributes("-topmost", True)
-        self.root.protocol("WM_DELETE_WINDOW", self.hide)
+        self.root.protocol("WM_DELETE_WINDOW", self.close_window)
         frame = ttk.Frame(self.root, padding=18)
         frame.grid()
         ttk.Label(
@@ -72,10 +75,39 @@ class ProgressWindow:
         self.bar.start(12)
         self.detail = StringVar(value="Bitte Metashape geöffnet lassen.")
         ttk.Label(frame, textvariable=self.detail).grid(row=3, column=0, pady=(8, 0), sticky="w")
+        self.button = ttk.Button(frame, text="Abbrechen", command=self.request_cancel)
+        self.button.grid(row=4, column=0, pady=(14, 0), sticky="e")
         self.root.after(250, self.refresh)
 
-    def hide(self):
-        self.root.withdraw()
+    def close_window(self):
+        shutil.rmtree(self.session, ignore_errors=True)
+        self.root.destroy()
+
+    def show_terminal(self, title, detail, success=False):
+        self.bar.stop()
+        self.bar.configure(mode="determinate", maximum=1, value=int(success))
+        self.status.set(title)
+        self.detail.set(detail)
+        self.button.configure(text="Schließen", state="normal", command=self.close_window)
+
+    def request_cancel(self):
+        atomic_json(self.session / "cancel_requested.json", {"requested_at": time.time()})
+        self.button.configure(state="disabled", text="Abbruch wird ausgeführt …")
+        worker_path = self.session / "worker.json"
+        if not worker_path.is_file():
+            return
+        worker = json.loads(worker_path.read_text(encoding="utf-8"))
+        try:
+            process = psutil.Process(int(worker["pid"]))
+            processes = process.children(recursive=True) + [process]
+            for item in processes:
+                item.terminate()
+            _, alive = psutil.wait_procs(processes, timeout=4)
+            for item in alive:
+                item.kill()
+        except (psutil.Error, OSError, ValueError, KeyError):
+            # The worker may already have exited; its launcher will observe the marker.
+            pass
 
     def refresh(self):
         status_path = self.session / "launcher_status.json"
@@ -85,24 +117,35 @@ class ProgressWindow:
         phase = status.get("phase")
         elapsed = time.time() - self.started
         if phase == "error":
-            self.bar.stop()
-            self.bar.configure(mode="determinate", maximum=1, value=0)
-            self.status.set("Die Klassifikation wurde mit einem Fehler beendet.")
-            self.detail.set(status.get("message") or "Details stehen im Metashape-Fehlerfenster.")
+            self.show_terminal(
+                "Die Klassifikation wurde mit einem Fehler beendet.",
+                status.get("message") or "Details stehen im Metashape-Fehlerfenster.",
+            )
+            return
+        if phase == "cancelled":
+            self.show_terminal(
+                "Die Klassifikation wurde abgebrochen.",
+                "Es wurde keine klassifizierte Punktwolke importiert.",
+            )
             return
         if phase == "complete":
-            self.bar.stop()
-            self.bar.configure(mode="determinate", maximum=1, value=1)
-            self.status.set("Fertig: Die klassifizierte Punktwolke wurde importiert.")
-            self.detail.set("Dieses Fenster schließt gleich automatisch.")
-            self.root.after(3500, self.root.destroy)
+            self.show_terminal(
+                "Fertig: Die klassifizierte Punktwolke wurde importiert.",
+                "Dieses Fenster schließt gleich automatisch.",
+                success=True,
+            )
+            self.root.after(3500, self.close_window)
             return
         if phase in {"prepare", "export", "import"}:
+            self.button.configure(state="disabled", text="Abbrechen nur während Berechnung")
+            if phase == "prepare":
+                self.button.configure(state="normal", text="Abbrechen")
             self.status.set(PHASES[phase] + " …")
             self.detail.set(f"Laufzeit {duration(elapsed)} · Bitte Metashape geöffnet lassen.")
             self.root.after(1000, self.refresh)
             return
 
+        self.button.configure(state="normal", text="Abbrechen")
         done, total, name, average = image_progress(self.session / "stage2.log")
         if total:
             if self.bar["mode"] != "determinate":
