@@ -102,6 +102,7 @@ def test_merge_metashape_class_partitions(tmp_path):
     source = laspy.create(point_format=2, file_version="1.2")
     source.x = [1.0, 2.0]
     source.y, source.z = [0.0, 0.0], [0.0, 0.0]
+    source.red, source.green, source.blue = [1234, 4321], [2345, 5432], [3456, 6543]
     source.classification = [0, 0]  # Native export wraps 64 -> 0.
     path = tmp_path / "class64.las"
     source.write(path)
@@ -115,9 +116,9 @@ def test_merge_metashape_class_partitions(tmp_path):
     )
     result = laspy.read(output)
     assert list(result.classification) == [64, 64]
-    assert list(result.red) == [0x12 * 257, 0x12 * 257]
-    assert list(result.green) == [0x34 * 257, 0x34 * 257]
-    assert list(result.blue) == [0x56 * 257, 0x56 * 257]
+    assert list(result.red) == [1234, 4321]
+    assert list(result.green) == [2345, 5432]
+    assert list(result.blue) == [3456, 6543]
     assert counts[64] == 2
     with pytest.raises(ValueError, match="count"):
         merge_class_exports([{"path": str(path), "code": 64, "count": 3}], output, classes, "", 1)

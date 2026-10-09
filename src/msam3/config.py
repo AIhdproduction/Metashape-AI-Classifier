@@ -65,7 +65,7 @@ class MetashapeConfig(StrictModel):
     chunks: list[str] = Field(default_factory=list)
     imported_label: str = "SAM3 classified"
     make_default: bool = False
-    display_mode: Literal["classification", "class_palette"] = "class_palette"
+    display_mode: Literal["classification", "class_palette", "image_colors"] = "image_colors"
     offscreen: Literal["auto", "always", "never"] = "auto"
 
 
@@ -148,6 +148,12 @@ class RoadPostprocessConfig(StrictModel):
     road_class: str = "road"
     max_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 40.0
     plane_neighbors: Annotated[int, Field(ge=3)] = 12
+    surface_radius_m: Positive = 1.5
+    surface_neighbors: Annotated[int, Field(ge=3, le=64)] = 24
+    min_surface_road_neighbors: Annotated[int, Field(ge=3, le=64)] = 12
+    min_surface_coverage_sectors: Annotated[int, Field(ge=1, le=8)] = 6
+    max_surface_offset_m: Annotated[float, Field(ge=0)] = 0.08
+    surface_replace_classes: list[str] = Field(default_factory=list)
 
 
 class PostprocessConfig(StrictModel):

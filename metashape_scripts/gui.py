@@ -96,7 +96,7 @@ def select_classified_asset(document, result, display_mode):
     chunk.point_cloud = asset
     document.chunk = chunk
     Metashape.app.model_view.view_mode = Metashape.PointCloudData
-    if display_mode == "class_palette":
+    if display_mode == "image_colors":
         Metashape.app.model_view.point_cloud_view_mode = (
             Metashape.Application.ModelView.PointCloudViewColor
         )

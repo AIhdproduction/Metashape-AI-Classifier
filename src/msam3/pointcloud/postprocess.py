@@ -176,6 +176,72 @@ def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
     return int(rejected.sum()), road
 
 
+def _repair_road_surface(points, labels, classes, config, batch_size, road_code):
+    """Replace configured false classes only inside a locally enclosing road plane."""
+    road_config = config.road
+    if not road_config.enabled or road_code is None or not road_config.surface_replace_classes:
+        return 0
+    names = [road_config.road_class, *road_config.surface_replace_classes]
+    codes = _class_codes(classes, names)
+    targets = np.array(
+        [codes[name] for name in road_config.surface_replace_classes if codes[name] != road_code],
+        dtype=np.uint8,
+    )
+    road_ids = np.flatnonzero(labels == road_code)
+    candidates = np.flatnonzero(np.isin(labels, targets))
+    if not len(road_ids) or not len(candidates):
+        return 0
+    road_tree = cKDTree(points[road_ids, :2])
+    repaired = 0
+    neighbour_count = min(road_config.surface_neighbors, len(road_ids))
+    for start in range(0, len(candidates), batch_size):
+        candidate_ids = candidates[start : start + batch_size]
+        candidate_xy = points[candidate_ids, :2]
+        nearest_distance, _ = road_tree.query(
+            candidate_xy,
+            k=1,
+            distance_upper_bound=road_config.surface_radius_m,
+            workers=-1,
+        )
+        nearby = np.flatnonzero(np.isfinite(nearest_distance))
+        if not len(nearby):
+            continue
+        selected = candidate_ids[nearby]
+        distances, nearest = road_tree.query(
+            points[selected, :2],
+            k=neighbour_count,
+            distance_upper_bound=road_config.surface_radius_m,
+            workers=-1,
+        )
+        distances = np.asarray(distances).reshape(len(selected), -1)
+        nearest = np.asarray(nearest).reshape(len(selected), -1)
+        valid = (nearest < len(road_ids)) & np.isfinite(distances)
+        safe = np.minimum(nearest, len(road_ids) - 1)
+        neighbours = points[road_ids[safe]].astype(np.float64, copy=False)
+        valid_count = valid.sum(axis=1)
+        mean = (neighbours * valid[:, :, None]).sum(axis=1) / np.maximum(valid_count, 1)[:, None]
+        centered = (neighbours - mean[:, None, :]) * valid[:, :, None]
+        covariance = np.einsum("bki,bkj->bij", centered, centered)
+        covariance /= np.maximum(valid_count, 1)[:, None, None]
+        _, vectors = np.linalg.eigh(covariance)
+        normal = vectors[:, :, 0]
+        slopes = np.degrees(np.arccos(np.clip(np.abs(normal[:, 2]), 0, 1)))
+        offsets = neighbours[:, :, :2] - points[selected, None, :2]
+        angles = np.floor((np.arctan2(offsets[:, :, 1], offsets[:, :, 0]) + np.pi) * 4 / np.pi)
+        sectors = np.mod(angles.astype(np.int8), 8)
+        coverage = np.zeros(len(selected), dtype=np.int8)
+        for sector in range(8):
+            coverage += np.any(valid & (sectors == sector), axis=1)
+        residual = np.abs(np.sum((points[selected] - mean) * normal, axis=1))
+        accepted = valid_count >= road_config.min_surface_road_neighbors
+        accepted &= coverage >= road_config.min_surface_coverage_sectors
+        accepted &= slopes <= road_config.max_slope_degrees
+        accepted &= residual <= road_config.max_surface_offset_m
+        labels[selected[accepted]] = road_code
+        repaired += int(accepted.sum())
+    return repaired
+
+
 def apply_postprocess(points, labels, shares, classes, config, directory, batch_size):
     """Apply NPI outlier removal, small-hole filling, roof, and road geometry rules."""
     labels = np.asarray(labels, dtype=np.uint8).copy()
@@ -192,6 +258,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     road_rejected, road_code = _restrict_road_slope(
         tree, points, labels, classes, config, batch_size
     )
+    road_surface = _repair_road_surface(points, labels, classes, config, batch_size, road_code)
     filled = _fill_small_holes(tree, points, labels, shares, rules, config, batch_size, road_code)
     output = Path(directory) / config.output_subdir
     output.mkdir(parents=True, exist_ok=True)
@@ -202,6 +269,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "after_counts": dict(sorted(Counter(int(code) for code in labels).items())),
             "npi_removed": dict(sorted(removed.items())),
             "road_slope_removed": road_rejected,
+            "road_surface_to_road": road_surface,
             "holes_filled": dict(sorted(filled.items())),
             "flat_roof_ground_to_building": roofs,
         },
