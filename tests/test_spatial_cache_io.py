@@ -1,6 +1,8 @@
 import csv
 import importlib.util
+import subprocess
 import sys
+import textwrap
 import types
 from pathlib import Path
 
@@ -39,6 +41,34 @@ def test_embedded_legend_writes_color_column(tmp_path, monkeypatch):
         {"name": "Unclassified", "code": "1", "color": "#787878", "prompts": ""},
         {"name": "ground", "code": "2", "color": "#663300", "prompts": "ground"},
     ]
+
+
+def test_metashape_launcher_reloads_embedded_modules():
+    """A second Tools > Run Script must not retain a pre-palette common.py module."""
+    root = Path(__file__).parents[1]
+    program = textwrap.dedent(
+        """
+        import runpy
+        import sys
+        import types
+
+        sys.modules["Metashape"] = types.ModuleType("Metashape")
+        import metashape_scripts.common as common
+
+        stale = object()
+        common.write_legends = stale
+        runpy.run_path("start_in_metashape.py", run_name="launcher_test")
+        assert common.write_legends is not stale
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_voxels_cross_batch_and_negative(tmp_path):
