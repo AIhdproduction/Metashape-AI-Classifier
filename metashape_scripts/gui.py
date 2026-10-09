@@ -16,14 +16,35 @@ ROOT = Path(__file__).resolve().parent.parent
 _running = False
 
 
-def run_worker(action, session):
-    """Run CUDA work in the installed venv and retain a concise error log."""
-    log_path = session / (action + ".log")
+def worker_environment():
     environment = os.environ.copy()
     environment.pop("PYTHONHOME", None)
     environment.pop("PYTHONPATH", None)
     environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONUNBUFFERED"] = "1"
+    return environment
+
+
+def launch_progress(session):
+    """Open the independent, topmost status window before any lengthy Metashape work."""
+    progress_python = ROOT / ".venv/Scripts/pythonw.exe"
+    if not progress_python.is_file():
+        progress_python = ROOT / ".venv/Scripts/python.exe"
+    subprocess.Popen(
+        [str(progress_python), "-m", "msam3.gui_progress", "--session", str(session)],
+        cwd=str(ROOT),
+        env=worker_environment(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def run_worker(action, session):
+    """Run CUDA work in the installed venv and retain a concise error log."""
+    log_path = session / (action + ".log")
+    environment = worker_environment()
     with log_path.open("w", encoding="utf-8") as stream:
         process = subprocess.Popen(
             [
@@ -42,27 +63,6 @@ def run_worker(action, session):
             stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        if action == "stage2":
-            progress_python = ROOT / ".venv/Scripts/pythonw.exe"
-            if not progress_python.is_file():
-                progress_python = ROOT / ".venv/Scripts/python.exe"
-            subprocess.Popen(
-                [
-                    str(progress_python),
-                    "-m",
-                    "msam3.gui_progress",
-                    "--session",
-                    str(session),
-                    "--pid",
-                    str(process.pid),
-                ],
-                cwd=str(ROOT),
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
         returncode = process.wait()
     write_json(session / (action + "_status.json"), {"returncode": returncode})
     if returncode:
@@ -91,6 +91,7 @@ def start():
     if _running:
         return
     _running = True
+    session = None
     try:
         check_metashape()
         document = Metashape.app.document
@@ -106,20 +107,25 @@ def start():
         session = ROOT / "work" / "gui-sessions" / uuid.uuid4().hex
         session.mkdir(parents=True)
         write_json(session / "session.json", {"project": str(Path(document.path).resolve())})
+        write_json(session / "launcher_status.json", {"phase": "prepare"})
+        launch_progress(session)
 
         print("SAM 3: Konfiguration wird vorbereitet ...")
         run_worker("prepare", session)
         job = json.loads((session / "job.json").read_text(encoding="utf-8"))
 
+        write_json(session / "launcher_status.json", {"phase": "export"})
         print("SAM 3: Punktwolke und Kameras werden aus Metashape exportiert ...")
         stage1_export.main(job, document=document)
         Metashape.app.update()
 
+        write_json(session / "launcher_status.json", {"phase": "classify"})
         print(
             "SAM 3: Geometriepruefung und Bildklassifikation laufen. Bitte Metashape offen lassen."
         )
         run_worker("stage2", session)
 
+        write_json(session / "launcher_status.json", {"phase": "import"})
         print("SAM 3: Klassifizierte Punktwolke wird importiert ...")
         job = json.loads((session / "job.json").read_text(encoding="utf-8"))
         defaults = {chunk.key: chunk.point_cloud for chunk in document.chunks}
@@ -135,10 +141,13 @@ def start():
             (Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8")
         )
         select_classified_asset(document, result)
+        write_json(session / "launcher_status.json", {"phase": "complete"})
         Metashape.app.messageBox(
             "SAM 3 ist fertig. Die neue Punktwolke 'SAM3 classified' ist nach Klassen dargestellt."
         )
     except Exception as error:
+        if session is not None:
+            write_json(session / "launcher_status.json", {"phase": "error", "message": str(error)})
         traceback.print_exc()
         Metashape.app.messageBox(
             "SAM 3 wurde beendet, ohne das Projekt zu speichern:\n" + str(error)

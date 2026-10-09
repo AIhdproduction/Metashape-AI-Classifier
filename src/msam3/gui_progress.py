@@ -14,6 +14,12 @@ IMAGE_LINE = re.compile(
     r"^(?P<time>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ INFO .* image "
     r"(?P<done>\d+)/(?P<total>\d+) \((?P<name>[^)]+)\) complete$"
 )
+PHASES = {
+    "prepare": "1/4: Einstellungen und Modell werden geprüft",
+    "export": "2/4: Metashape exportiert Punktwolke und Kameras",
+    "classify": "3/4: SAM 3 klassifiziert die Kamerabilder",
+    "import": "4/4: Metashape importiert die klassifizierte Punktwolke",
+}
 
 
 def image_progress(path: Path):
@@ -72,8 +78,32 @@ class ProgressWindow:
         self.root.withdraw()
 
     def refresh(self):
-        done, total, name, average = image_progress(self.session / "stage2.log")
+        status_path = self.session / "launcher_status.json"
+        status = {}
+        if status_path.is_file():
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+        phase = status.get("phase")
         elapsed = time.time() - self.started
+        if phase == "error":
+            self.bar.stop()
+            self.bar.configure(mode="determinate", maximum=1, value=0)
+            self.status.set("Die Klassifikation wurde mit einem Fehler beendet.")
+            self.detail.set(status.get("message") or "Details stehen im Metashape-Fehlerfenster.")
+            return
+        if phase == "complete":
+            self.bar.stop()
+            self.bar.configure(mode="determinate", maximum=1, value=1)
+            self.status.set("Fertig: Die klassifizierte Punktwolke wurde importiert.")
+            self.detail.set("Dieses Fenster schließt gleich automatisch.")
+            self.root.after(3500, self.root.destroy)
+            return
+        if phase in {"prepare", "export", "import"}:
+            self.status.set(PHASES[phase] + " …")
+            self.detail.set(f"Laufzeit {duration(elapsed)} · Bitte Metashape geöffnet lassen.")
+            self.root.after(1000, self.refresh)
+            return
+
+        done, total, name, average = image_progress(self.session / "stage2.log")
         if total:
             if self.bar["mode"] != "determinate":
                 self.bar.stop()
@@ -90,15 +120,13 @@ class ProgressWindow:
 
         result = self.session / "stage2_status.json"
         if result.is_file():
-            status = json.loads(result.read_text(encoding="utf-8"))
-            if status["returncode"] == 0:
-                self.status.set("Bildklassifikation fertig. Metashape importiert die Punktwolke …")
-                self.detail.set("Dieses Fenster schließt gleich automatisch.")
-                self.root.after(3500, self.root.destroy)
+            worker_status = json.loads(result.read_text(encoding="utf-8"))
+            if worker_status["returncode"]:
+                self.status.set("Die Bildklassifikation wurde mit einem Fehler beendet.")
+                self.detail.set(
+                    "Details stehen im Metashape-Fehlerfenster und im Arbeitsprotokoll."
+                )
                 return
-            self.status.set("Die Bildklassifikation wurde mit einem Fehler beendet.")
-            self.detail.set("Details stehen im Metashape-Fehlerfenster und im Arbeitsprotokoll.")
-            return
         if self.worker_pid is not None and not psutil.pid_exists(self.worker_pid):
             self.status.set("Der Hintergrundprozess wurde beendet.")
             self.detail.set("Metashape zeigt das Ergebnis oder den Fehler an.")
