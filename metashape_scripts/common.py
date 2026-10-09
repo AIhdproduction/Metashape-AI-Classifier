@@ -26,6 +26,12 @@ def read_job():
     if len(sys.argv) != 2:
         raise RuntimeError("Expected exactly one script argument: the absolute job.json path")
     job = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    check_metashape()
+    LOG.info("Metashape %s; job %s", Metashape.app.version, sys.argv[1])
+    return job
+
+
+def check_metashape():
     version = tuple(int(p) for p in Metashape.app.version.split(".")[:2])
     if version < (2, 0):
         raise RuntimeError("Metashape Professional 2.x is required; version 1.x is unsupported")
@@ -40,8 +46,6 @@ def read_job():
             "No active Metashape Professional license. Make a floating license "
             "available or activate your installation, then retry. See the log."
         )
-    LOG.info("Metashape %s; job %s", Metashape.app.version, sys.argv[1])
-    return job
 
 
 def open_document(project):
@@ -108,7 +112,7 @@ def safe_name(label):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", label).strip("._")[:80] or "chunk"
 
 
-def export_cloud(chunk, path, crs, key, classes=None):
+def export_cloud(chunk, path, crs, key, classes=None, progress=None):
     parameters = dict(
         path=str(path),
         format=Metashape.PointCloudFormatLAS,
@@ -126,6 +130,8 @@ def export_cloud(chunk, path, crs, key, classes=None):
     )
     if classes is not None:
         parameters["classes"] = classes
+    if progress is not None:
+        parameters["progress"] = progress
     chunk.exportPointCloud(**parameters)
     if not Path(path).is_file():
         raise RuntimeError("Metashape did not create the LAS export: " + str(path))

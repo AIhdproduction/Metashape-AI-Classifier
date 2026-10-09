@@ -96,7 +96,19 @@ def execute(
         handler.close()
 
 
-def _execute(action, project, work, output, settings, classes, voting_only):
+def _execute(
+    action,
+    project,
+    work,
+    output,
+    settings,
+    classes,
+    voting_only,
+    *,
+    stage_runner=None,
+    force_export=False,
+):
+    stage_runner = stage_runner or run_metashape
     started = time.perf_counter()
     identity = json_hash(
         {
@@ -121,7 +133,7 @@ def _execute(action, project, work, output, settings, classes, voting_only):
     stage1 = (
         json.loads(stage1_marker.read_text(encoding="utf-8")) if stage1_marker.is_file() else None
     )
-    reusable = stage1 is not None and stage1.get("stage1_identity") == identity
+    reusable = not force_export and stage1 is not None and stage1.get("stage1_identity") == identity
     if reusable:
         reusable = all(
             all(
@@ -137,7 +149,7 @@ def _execute(action, project, work, output, settings, classes, voting_only):
                 "Stage 1 export is missing or stale. Run msam3 stage1 --project ... first."
             )
         start = time.perf_counter()
-        stage1 = run_metashape(1, job_path, work, settings.metashape)
+        stage1 = stage_runner(1, job_path, work, settings.metashape)
         stage1_seconds = time.perf_counter() - start
     else:
         LOG.info("Reusing verified stage 1 package in %s", work)
@@ -188,26 +200,10 @@ def _execute(action, project, work, output, settings, classes, voting_only):
             if not path.is_file():
                 raise RuntimeError("Stage 2 result is missing; run msam3 stage2 first")
             inputs.append(json.loads(path.read_text(encoding="utf-8")))
-    for result in inputs:
-        if result["classes_hash"] != json_hash(classes.model_dump()):
-            raise ValueError("Classes changed since stage 2. Rerun stage2 before importing.")
-        if result["stage1_identity"] != identity:
-            raise ValueError("Stage 2 results belong to an older stage 1 export; rerun stage2.")
-        if file_hash(Path(result["classified_las"])) != result["las_sha256"]:
-            raise ValueError("Classified LAS changed since stage 2; rerun stage2")
-        metadata = json.loads(
-            (Path(result["directory"]) / "chunk.json").read_text(encoding="utf-8")
-        )
-        result["import_id"] = json_hash(
-            {"las": result["las_sha256"], "source": metadata["source_signature"]}
-        )
-        with laspy.open(result["classified_las"]) as reader:
-            # Explicit millimetre precision prevents Metashape's coarse auto quantization.
-            result["precision_m"] = min(0.001, float(np.min(reader.header.scales)))
-    job["stage3_inputs"] = inputs
+    job["stage3_inputs"] = prepare_stage3_inputs(inputs, identity, classes)
     atomic_json(job_path, job)
     start = time.perf_counter()
-    stage3 = run_metashape(3, job_path, work, settings.metashape)
+    stage3 = stage_runner(3, job_path, work, settings.metashape)
     # Persist our own project save before final LAS assembly, so disk-full recovery can resume.
     job["stage1_identity"] = json_hash(
         {
@@ -247,3 +243,27 @@ def _execute(action, project, work, output, settings, classes, voting_only):
     atomic_json(work / "run_done.json", stage3)
     LOG.info("Complete. Classified project saved; final LAS files: %s", output)
     return stage3
+
+
+def prepare_stage3_inputs(inputs: list[dict], identity: str, classes: Classes) -> list[dict]:
+    """Verify stage-2 files and add the import contract used by Metashape stage 3."""
+    prepared = []
+    for source in inputs:
+        result = dict(source)
+        if result["classes_hash"] != json_hash(classes.model_dump()):
+            raise ValueError("Classes changed since stage 2. Rerun stage2 before importing.")
+        if result["stage1_identity"] != identity:
+            raise ValueError("Stage 2 results belong to an older stage 1 export; rerun stage2.")
+        if file_hash(Path(result["classified_las"])) != result["las_sha256"]:
+            raise ValueError("Classified LAS changed since stage 2; rerun stage2")
+        metadata = json.loads(
+            (Path(result["directory"]) / "chunk.json").read_text(encoding="utf-8")
+        )
+        result["import_id"] = json_hash(
+            {"las": result["las_sha256"], "source": metadata["source_signature"]}
+        )
+        with laspy.open(result["classified_las"]) as reader:
+            # Explicit millimetre precision prevents Metashape's coarse auto quantization.
+            result["precision_m"] = min(0.001, float(np.min(reader.header.scales)))
+        prepared.append(result)
+    return prepared

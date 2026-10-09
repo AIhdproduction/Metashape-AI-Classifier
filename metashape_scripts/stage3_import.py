@@ -7,8 +7,8 @@ from pathlib import Path
 
 import Metashape
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from metashape_scripts.common import (
     camera_record,
     export_cloud,
     open_document,
@@ -22,8 +22,9 @@ from common import (
 LOG = logging.getLogger("msam3.stage3")
 
 
-def main(job):
-    document = open_document(job["project"])
+def main(job, document=None, progress=None):
+    if document is None:
+        document = open_document(job["project"])
     results = []
     for entry in job["stage3_inputs"]:
         directory = Path(entry["directory"])
@@ -69,6 +70,7 @@ def main(job):
                 replace_asset=False,
                 calculate_normals=False,
                 precision=entry["precision_m"],
+                **({"progress": progress} if progress is not None else {}),
             )
             added = [p for p in chunk.point_clouds if p.key not in before]
             if len(added) != 1:
@@ -96,7 +98,7 @@ def main(job):
         )
         for code, count in sorted(expected.items()):
             path = parts_dir / ("class-" + str(code) + ".las")
-            export_cloud(chunk, path, chunk.crs, asset.key, classes=[code])
+            export_cloud(chunk, path, chunk.crs, asset.key, classes=[code], progress=progress)
             parts.append({"code": code, "count": count, "path": str(path)})
         write_legends(parts_dir, job["classes"])
         filename = (

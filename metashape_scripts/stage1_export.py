@@ -9,8 +9,8 @@ from pathlib import Path
 
 import Metashape
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from metashape_scripts.common import (
     calibration_values,
     camera_record,
     export_cloud,
@@ -82,7 +82,7 @@ def samples_for(chunk, cameras, export_transform, export_crs):
     return {"samples": records, "projections": projections}
 
 
-def export_chunk(chunk, job):
+def export_chunk(chunk, job, progress=None):
     skipped = Counter()
     cameras = []
     for camera in chunk.cameras:
@@ -143,7 +143,9 @@ def export_chunk(chunk, job):
         "source_signature": source_signature(chunk, records),
     }
     validation = samples_for(chunk, cameras, export_transform, export_crs)
-    export_cloud(chunk, directory / "dense.las", export_crs, chunk.point_cloud.key)
+    export_cloud(
+        chunk, directory / "dense.las", export_crs, chunk.point_cloud.key, progress=progress
+    )
     write_legends(directory, job["classes"])
     if job["settings"]["visibility"]["mode"] == "depth_maps":
         if chunk.depth_maps is None:
@@ -173,8 +175,9 @@ def export_chunk(chunk, job):
     }
 
 
-def main(job):
-    document = open_document(job["project"])
+def main(job, document=None, progress=None):
+    if document is None:
+        document = open_document(job["project"])
     selected = job["settings"]["metashape"]["chunks"]
     if selected:
         missing = set(selected) - {c.label for c in document.chunks}
@@ -183,7 +186,7 @@ def main(job):
     chunks = []
     for chunk in document.chunks:
         if (chunk.label in selected) if selected else chunk.enabled:
-            result = export_chunk(chunk, job)
+            result = export_chunk(chunk, job, progress=progress)
             if result is not None:
                 chunks.append(result)
     if not chunks:
