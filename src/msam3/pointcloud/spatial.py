@@ -66,6 +66,23 @@ def representative_class_mask(source: Path, indices, code: int, batch_size: int)
     return mask
 
 
+def representative_classifications(source: Path, indices, batch_size: int) -> np.ndarray:
+    """Read original Metashape classification values for sorted voting representatives."""
+    indices = np.asarray(indices)
+    if len(indices) and np.any(np.diff(indices) < 0):
+        raise ValueError("Representative indices must be sorted")
+    classifications = np.empty(len(indices), dtype=np.uint8)
+    offset = 0
+    with laspy.open(source) as reader:
+        for block in reader.chunk_iterator(batch_size):
+            left, right = np.searchsorted(indices, [offset, offset + len(block)])
+            if left != right:
+                local = indices[left:right] - offset
+                classifications[left:right] = np.asarray(block.classification)[local]
+            offset += len(block)
+    return classifications
+
+
 def voxel_representatives(
     points, size: float, directory: Path, batch_size: int = 500_000, buckets: int = 256
 ) -> np.ndarray:

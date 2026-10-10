@@ -139,6 +139,23 @@ class GroundAssistConfig(StrictModel):
     fallback_confidence: Probability = 0.4
 
 
+class VegetationAssistConfig(StrictModel):
+    """Use existing Metashape vegetation classes only where SAM has no decision."""
+
+    enabled: bool = True
+    source_low_codes: list[Code] = [3]
+    source_high_codes: list[Code] = [5]
+    low_vegetation_class: str = "low_vegetation"
+    high_vegetation_class: str = "tree"
+    fallback_confidence: Probability = 0.35
+
+    @model_validator(mode="after")
+    def check_source_codes(self):
+        if set(self.source_low_codes) & set(self.source_high_codes):
+            raise ValueError("Metashape low and high vegetation source codes must not overlap")
+        return self
+
+
 class SmoothingConfig(StrictModel):
     enabled: bool = False
     k: Annotated[int, Field(ge=1)] = 8
@@ -251,6 +268,7 @@ class Settings(StrictModel):
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     voting: VotingConfig = Field(default_factory=VotingConfig)
     ground_assist: GroundAssistConfig = Field(default_factory=GroundAssistConfig)
+    vegetation_assist: VegetationAssistConfig = Field(default_factory=VegetationAssistConfig)
     smoothing: SmoothingConfig = Field(default_factory=SmoothingConfig)
     postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)

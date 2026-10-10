@@ -17,6 +17,7 @@ from msam3.driver import project_state
 from msam3.pointcloud.las_io import merge_class_exports
 from msam3.pointcloud.spatial import (
     representative_class_mask,
+    representative_classifications,
     spatial_blocks,
     voxel_representatives,
 )
@@ -177,6 +178,11 @@ def test_representative_class_mask_reads_only_requested_indices(tmp_path):
     mask = representative_class_mask(path, np.array([1, 2, 5]), 2, batch_size=2)
 
     assert mask.tolist() == [True, False, True]
+    assert representative_classifications(path, np.array([1, 2, 5]), batch_size=2).tolist() == [
+        2,
+        3,
+        2,
+    ]
 
 
 def test_block_covering_entire_image_not_culled():

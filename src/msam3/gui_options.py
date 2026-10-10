@@ -154,6 +154,7 @@ def settings_override(
     vegetation: bool,
     road: bool,
     smoothing: bool,
+    vegetation_assist: bool = True,
 ) -> dict:
     """Translate the visible controls to the validated job settings schema."""
     return {
@@ -164,6 +165,7 @@ def settings_override(
         },
         "voting": {"min_views": min_views},
         "ground_assist": {"enabled": ground_assist},
+        "vegetation_assist": {"enabled": vegetation_assist},
         "postprocess": {
             "enabled": postprocess,
             "vegetation": {"enabled": vegetation},
@@ -194,6 +196,7 @@ class OptionsWindow:
         self.prompt_batch_size = IntVar(value=8)
         self.min_views = IntVar(value=1)
         self.ground_assist = BooleanVar(value=True)
+        self.vegetation_assist = BooleanVar(value=True)
         self.postprocess = BooleanVar(value=True)
         self.vegetation = BooleanVar(value=True)
         self.road = BooleanVar(value=True)
@@ -280,16 +283,21 @@ class OptionsWindow:
             row=0, column=0, sticky="w"
         )
         ttk.Checkbutton(
-            filters, text="Geometrischen Nachfilter verwenden", variable=self.postprocess
+            filters,
+            text="Metashape-Vegetationshilfe (nur SAM-unbekannt)",
+            variable=self.vegetation_assist,
         ).grid(row=1, column=0, pady=(5, 0), sticky="w")
         ttk.Checkbutton(
-            filters, text="Vegetation nach DTM-Höhe trennen", variable=self.vegetation
+            filters, text="Geometrischen Nachfilter verwenden", variable=self.postprocess
         ).grid(row=2, column=0, pady=(5, 0), sticky="w")
+        ttk.Checkbutton(
+            filters, text="Vegetation nach DTM-Höhe trennen", variable=self.vegetation
+        ).grid(row=3, column=0, pady=(5, 0), sticky="w")
         ttk.Checkbutton(filters, text="Straßenflächen korrigieren", variable=self.road).grid(
-            row=3, column=0, pady=(5, 0), sticky="w"
+            row=4, column=0, pady=(5, 0), sticky="w"
         )
         ttk.Checkbutton(filters, text="Zusätzliche kNN-Glättung", variable=self.smoothing).grid(
-            row=4, column=0, pady=(5, 0), sticky="w"
+            row=5, column=0, pady=(5, 0), sticky="w"
         )
 
         ttk.Label(frame, textvariable=self.estimate, font=("Segoe UI", 10, "bold")).grid(
@@ -394,6 +402,7 @@ class OptionsWindow:
                     self.vegetation.get(),
                     self.road.get(),
                     self.smoothing.get(),
+                    self.vegetation_assist.get(),
                 ),
             },
         )

@@ -57,6 +57,13 @@ ground_assist:
   min_sam_ground_views: 1
   fallback_class: ground # No SAM surface evidence: retain Metashape's terrain result as ground.
   fallback_confidence: 0.4
+vegetation_assist:
+  enabled: true # Use existing Metashape vegetation classes only where SAM remains unclassified.
+  source_low_codes: [3] # Metashape / ASPRS low vegetation.
+  source_high_codes: [5] # Metashape / ASPRS high vegetation.
+  low_vegetation_class: low_vegetation
+  high_vegetation_class: tree
+  fallback_confidence: 0.35 # The DTM post-filter determines the final low/high vegetation class.
 smoothing:
   enabled: false # Optional voting-cloud kNN majority smoothing.
   k: 8 # Number of neighbours, including the point itself.

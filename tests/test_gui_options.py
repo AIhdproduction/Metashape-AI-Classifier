@@ -36,6 +36,7 @@ def test_start_window_override_is_applied_only_to_the_session(tmp_path):
     assert settings.sam.prompt_batch_size == 12
     assert settings.voting.min_views == 2
     assert not settings.ground_assist.enabled
+    assert settings.vegetation_assist.enabled
     assert not settings.postprocess.vegetation.enabled
     assert not settings.postprocess.road.enabled
     assert settings.smoothing.enabled

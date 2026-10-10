@@ -4,7 +4,12 @@ from pathlib import Path
 
 import numpy as np
 
-from msam3.config import Classes, GroundAssistConfig, VotingConfig
+from msam3.config import (
+    Classes,
+    GroundAssistConfig,
+    VegetationAssistConfig,
+    VotingConfig,
+)
 
 
 class Votes:
@@ -89,3 +94,41 @@ def apply_ground_assist(labels, shares, votes: Votes, ground_hint, config: Groun
         shares[fallback_ids] = np.maximum(shares[fallback_ids], config.fallback_confidence)
         resolved[str(fallback_code)] = resolved.get(str(fallback_code), 0) + len(fallback_ids)
     return labels, shares, {"metashape_ground_points": int(ground_hint.sum()), "resolved": resolved}
+
+
+def apply_vegetation_assist(
+    labels, shares, metashape_classes, classes, config: VegetationAssistConfig
+):
+    """Use existing Metashape low/high vegetation only for SAM-unknown points.
+
+    The DTM post-filter remains responsible for the final low/high split. This supplies
+    vegetation candidates where the image model saw no usable class, without replacing
+    a positive SAM decision.
+    """
+    report = {"metashape_low_points": 0, "metashape_high_points": 0, "resolved": {}}
+    if not config.enabled:
+        return labels, shares, report
+    semantic_codes = {item.name: item.code for item in classes.classes}
+    if not {config.low_vegetation_class, config.high_vegetation_class}.issubset(semantic_codes):
+        return labels, shares, report
+    source = np.asarray(metashape_classes, dtype=np.uint8)
+    if source.shape != labels.shape:
+        raise ValueError("Metashape vegetation classes do not match voting points")
+    low_source = np.isin(source, config.source_low_codes)
+    high_source = np.isin(source, config.source_high_codes)
+    report["metashape_low_points"] = int(low_source.sum())
+    report["metashape_high_points"] = int(high_source.sum())
+    unknown = labels == classes.unknown_code
+    low_targets = unknown & low_source
+    high_targets = unknown & high_source
+    low_code = semantic_codes[config.low_vegetation_class]
+    high_code = semantic_codes[config.high_vegetation_class]
+    labels[low_targets] = low_code
+    labels[high_targets] = high_code
+    resolved = {}
+    for code, targets in ((low_code, low_targets), (high_code, high_targets)):
+        if np.any(targets):
+            shares[targets] = np.maximum(shares[targets], config.fallback_confidence)
+            resolved[str(code)] = int(targets.sum())
+    report["resolved"] = resolved
+    return labels, shares, report
