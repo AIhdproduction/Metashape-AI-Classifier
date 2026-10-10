@@ -82,6 +82,7 @@ def package(tmp_path):
     settings = Settings()
     settings.visibility.splat_px = 0
     settings.visibility.zbuffer_scale = 1
+    settings.visibility.mask_interior_px = 0
     settings.cache.scale = 1
     settings.voting.batch_points = 107
     settings.voting.voxel_buckets = 4

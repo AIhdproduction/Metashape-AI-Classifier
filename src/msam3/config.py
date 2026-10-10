@@ -106,6 +106,8 @@ class VisibilityConfig(StrictModel):
     splat_px: Annotated[int, Field(ge=0, le=16)] = 2
     rel_tolerance: Probability = 0.02
     abs_tolerance_m: Annotated[float, Field(ge=0)] = 0.05
+    mask_interior_px: Annotated[int, Field(ge=0, le=8)] = 2
+    min_mask_confidence: Probability = 0.5
 
 
 class VotingConfig(StrictModel):

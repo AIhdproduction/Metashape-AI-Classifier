@@ -27,11 +27,13 @@ validation:
   max_reprojection_px: 0.5 # Hard maximum pixel error.
   max_tie_to_dense_m: 0.10 # Hard maximum median nearest distance.
 visibility:
-  mode: zbuffer # zbuffer, or externally prepared calibrated depth_maps.
-  zbuffer_scale: 0.25 # Resolution relative to the original image.
-  splat_px: 2 # Radius in reduced-resolution pixels.
-  rel_tolerance: 0.02 # Relative depth slack.
-  abs_tolerance_m: 0.05 # Absolute depth slack in metres.
+  mode: depth_maps # Export and use Metashape's calibrated depth map for each camera.
+  zbuffer_scale: 0.5 # Fallback z-buffer resolution, relative to the original image.
+  splat_px: 0 # Fallback depth test must not bleed across object boundaries.
+  rel_tolerance: 0.005 # Fallback relative depth slack.
+  abs_tolerance_m: 0.02 # Fallback absolute depth slack in metres.
+  mask_interior_px: 2 # Cached-mask pixels required between a vote and every class boundary.
+  min_mask_confidence: 0.5 # A pixel below this SAM confidence never votes for a 3D point.
 voting:
   voxel_size_m: 0.03 # One original representative per metric voxel.
   block_size_m: 10.0 # Spatial block edge length in metres.

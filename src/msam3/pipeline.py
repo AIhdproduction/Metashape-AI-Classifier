@@ -25,6 +25,7 @@ from msam3.pointcloud.spatial import (
 from msam3.pointcloud.visibility import ZBuffer
 from msam3.pointcloud.voting import Votes
 from msam3.report import write_report
+from msam3.segmentation.mask_filter import interior_labels
 from msam3.segmentation.sam3_backend import BACKEND_VERSION, SAM_REVISION
 from msam3.segmentation.tiling import segment_image
 from msam3.validation import image_path, load_raw_image, read_package, validate_package
@@ -160,6 +161,12 @@ def process_chunk(
         labels, confidence = cached
         if np.any((labels != 255) & (labels >= len(classes.classes))):
             raise ValueError("Cached image contains out-of-range class indices")
+        vote_labels = interior_labels(
+            labels,
+            confidence,
+            settings.visibility.mask_interior_px,
+            settings.visibility.min_mask_confidence,
+        )
         segmentation_seconds += time.perf_counter() - image_start
         vote_start = time.perf_counter()
         matrix = camera.relative_matrix(cloud.origin_internal, cloud.metres_per_internal)
@@ -214,7 +221,7 @@ def process_chunk(
                 rays = center - points[visible_ids]
                 rays /= np.maximum(np.linalg.norm(rays, axis=1, keepdims=True), 1e-12)
                 weight = np.abs(np.sum(rays * normals[visible_ids], axis=1))
-            votes.add(visible_ids, labels[y, x], confidence[y, x], weight)
+            votes.add(visible_ids, vote_labels[y, x], confidence[y, x], weight)
         images_used += 1
         voting_seconds += time.perf_counter() - vote_start
         LOG.info(
