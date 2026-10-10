@@ -8,10 +8,10 @@ classes:
     color: "#663300" # Cyclone 3DR: Ground (class 2).
   - name: road
     code: 11
-    prompts: [road, street, asphalt, carriageway]
+    prompts: [asphalt road for vehicles, vehicle carriageway, street roadway, drivable asphalt]
     color: "#A0A0A4" # Cyclone 3DR: Road Surface (class 11).
   - name: sidewalk
-    prompts: [sidewalk, footpath, pedestrian path, pavement]
+    prompts: [pedestrian sidewalk beside roadway, paved footway, walkway next to curb]
     color: "#C8C8C8" # Cyclone 3DR: Side walk (class 73).
   - name: curb
     prompts: [curb, kerb, curb stone, edge stone]
