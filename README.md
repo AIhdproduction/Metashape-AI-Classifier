@@ -164,7 +164,7 @@ Open PowerShell in the repository and run the geometry check first. This does no
 weights or a GPU:
 
 ```powershell
-cd "D:\Help\01_Privat\metashape-sam3-classifier"
+cd "C:\path\to\metashape-sam3-classifier"
 .\.venv\Scripts\python.exe -m msam3 validate --project "D:\jobs\site\site.psx"
 .\.venv\Scripts\python.exe -m msam3 run --project "D:\jobs\site\site.psx"
 ```
@@ -329,30 +329,20 @@ For the precise scope of tested behavior and remaining field checks, see
 [method.md](docs/method.md#to-be-verified-on-first-real-run) and the
 [local verification record](docs/verification.md).
 
-## Development and publishing
+## Development
+
+Install the optional development tools and run the local checks:
 
 ```powershell
-python -m pip install -e ".[dev]"
-ruff check .
-pytest
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m ruff check src tests metashape_scripts start_in_metashape.py
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-CI runs the tests on CPU on Windows and Linux. Model weights, imagery, project data and logs
-are excluded from Git. Work stays on `main`. Nothing is pushed automatically.
-
-Before a user-authorized push, verify the GitHub identity is **AIhdproduction**. With GitHub CLI:
-
-```powershell
-gh auth status
-gh api user --jq .login
-# Continue only when the authenticated login is AIhdproduction.
-git remote -v
-git status
-git push -u origin main
-```
-
-Git's commit author and GitHub authentication are separate. This checkout uses
-`AIhdproduction <260610871+AIhdproduction@users.noreply.github.com>` for local commits.
+CI runs the CPU tests on Windows and Linux. Model weights, imagery, Metashape projects,
+exports, logs and `work/` data are excluded from Git. Keep credentials and model weights out
+of commits. For changes intended for the project, use the repository's normal contribution and
+review process.
 
 ## Licenses
 
