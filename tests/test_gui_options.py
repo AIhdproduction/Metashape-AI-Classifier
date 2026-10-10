@@ -1,4 +1,11 @@
-from msam3.gui_options import estimate_seconds, maximum_safe_batch, settings_override
+from msam3.gui_options import (
+    batch_time_factor,
+    estimate_seconds,
+    historical_seconds_per_image,
+    maximum_safe_batch,
+    settings_override,
+    tile_count,
+)
 from msam3.gui_worker import settings_for_session
 
 
@@ -55,3 +62,30 @@ def test_auto_batch_reserves_gpu_headroom_and_never_exceeds_sixteen():
     assert maximum_safe_batch(24.0, 24.0, 1.0, 0.30) == 4
     assert maximum_safe_batch(16.0, 16.0, 0.75, 0.20) == 4
     assert maximum_safe_batch(10.0, 16.0, 0.75, 0.20) is None
+
+
+def test_estimate_uses_exact_tile_count_and_normalizes_previous_profile(tmp_path):
+    session = tmp_path / "old"
+    session.mkdir()
+    (session / "session.json").write_text(
+        '{"project": "D:/Test Script/Test_script.psx"}', encoding="utf-8"
+    )
+    (session / "job.json").write_text(
+        '{"settings": {"sam": {"image_scale": 1.0, "tile_overlap": 0.2, "prompt_batch_size": 4}}}',
+        encoding="utf-8",
+    )
+    lines = [
+        f"2026-10-09 08:{minute:02d}:00,000 INFO Chunk 1: image {index}/9 (image-{index}) complete"
+        for index, minute in enumerate(range(1, 10), start=1)
+    ]
+    (session / "stage2.log").write_text("\n".join(lines), encoding="utf-8")
+    sizes = [(3000, 2000)]
+
+    baseline = historical_seconds_per_image(tmp_path, sizes, "D:/Test Script/Test_script.psx")
+    expected = 60 * tile_count(3000, 2000, 0.75, 0.2) / tile_count(3000, 2000, 1.0, 0.2)
+    expected /= batch_time_factor(4)
+
+    assert baseline == expected
+    quick = estimate_seconds(1, 0.5, 0.1, 1, baseline, 8, sizes)
+    accurate = estimate_seconds(1, 1.0, 0.3, 1, baseline, 8, sizes)
+    assert accurate > quick

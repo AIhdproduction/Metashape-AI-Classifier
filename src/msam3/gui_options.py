@@ -21,24 +21,71 @@ PROFILES = {
 }
 
 
-def historical_seconds_per_image(sessions_root: Path) -> float:
-    """Use recent completed image timings as an estimate for this computer and GPU."""
+def tile_count(width: int, height: int, image_scale: float, tile_overlap: float) -> int:
+    """Mirror the production sliding-window count without loading an image."""
+    scaled_width = max(1, round(width * image_scale))
+    scaled_height = max(1, round(height * image_scale))
+    stride = max(1, round(1008 * (1 - tile_overlap)))
+
+    def starts(length: int) -> int:
+        last = max(0, length - 1008)
+        return len(set([*range(0, last + 1, stride), last]))
+
+    return starts(scaled_width) * starts(scaled_height)
+
+
+def total_tile_count(image_sizes, image_scale: float, tile_overlap: float) -> int:
+    return sum(
+        tile_count(int(width), int(height), image_scale, tile_overlap)
+        for width, height in image_sizes
+    )
+
+
+def batch_time_factor(prompt_batch_size: int) -> float:
+    """The image encoder dominates; more text prompts still shorten each tile measurably."""
+    return (8 / prompt_batch_size) ** 0.20
+
+
+def _log_seconds_per_image(log_path: Path) -> float | None:
+    records = []
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = IMAGE_LINE.match(line)
+        if match:
+            records.append(match)
+    if len(records) < 8:
+        return None
+    first = datetime.strptime(records[0]["time"], "%Y-%m-%d %H:%M:%S")
+    last = datetime.strptime(records[-1]["time"], "%Y-%m-%d %H:%M:%S")
+    images = int(records[-1]["done"]) - int(records[0]["done"])
+    seconds = (last - first).total_seconds() / images if images > 0 else 0
+    return seconds if 1 <= seconds <= 900 else None
+
+
+def historical_seconds_per_image(sessions_root: Path, image_sizes=(), project: str = "") -> float:
+    """Normalize matching historical logs to the standard 75% / 20% / batch-8 profile."""
     samples = []
+    standard_tiles = total_tile_count(image_sizes, 0.75, 0.20) if image_sizes else 0
     for log_path in sessions_root.glob("*/stage2.log"):
-        records = []
-        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            match = IMAGE_LINE.match(line)
-            if match:
-                records.append(match)
-        if len(records) < 8:
+        seconds = _log_seconds_per_image(log_path)
+        job_path = log_path.parent / "job.json"
+        session_path = log_path.parent / "session.json"
+        if seconds is None or not job_path.is_file() or not session_path.is_file():
             continue
-        first = datetime.strptime(records[0]["time"], "%Y-%m-%d %H:%M:%S")
-        last = datetime.strptime(records[-1]["time"], "%Y-%m-%d %H:%M:%S")
-        images = int(records[-1]["done"]) - int(records[0]["done"])
-        if images > 0:
-            seconds = (last - first).total_seconds() / images
-            if 1 <= seconds <= 900:
-                samples.append(seconds)
+        session = json.loads(session_path.read_text(encoding="utf-8"))
+        if project and session.get("project") != project:
+            continue
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+        sam = job.get("settings", {}).get("sam", {})
+        scale = float(sam.get("image_scale", 0.75))
+        overlap = float(sam.get("tile_overlap", 0.20))
+        batch = int(sam.get("prompt_batch_size", 8))
+        if standard_tiles:
+            source_tiles = total_tile_count(image_sizes, scale, overlap)
+            if source_tiles:
+                seconds *= standard_tiles / source_tiles
+        else:
+            seconds /= (scale / 0.75) ** 2 * ((1 - 0.20) / (1 - overlap)) ** 2
+        samples.append(seconds / batch_time_factor(batch))
     return statistics.median(samples) if samples else 45.0
 
 
@@ -49,15 +96,17 @@ def estimate_seconds(
     min_views: int,
     baseline: float,
     prompt_batch_size: int = 8,
+    image_sizes=(),
 ) -> float:
-    """Give a deliberately conservative wall-clock estimate, including Metashape I/O."""
-    resolution_factor = (image_scale / 0.75) ** 2
-    overlap_factor = ((1 - 0.20) / (1 - tile_overlap)) ** 2
-    view_factor = 1 + max(0, min_views - 1) * 0.08
-    batch_factor = (8 / prompt_batch_size) ** 0.12
-    classification = (
-        image_count * baseline * resolution_factor * overlap_factor * view_factor * batch_factor
-    )
+    """Estimate from comparable logs and the exact tile count for the selected settings."""
+    del min_views  # All enabled photographs are processed regardless of the vote threshold.
+    if image_sizes:
+        standard_tiles = total_tile_count(image_sizes, 0.75, 0.20)
+        selected_tiles = total_tile_count(image_sizes, image_scale, tile_overlap)
+        tile_factor = selected_tiles / max(1, standard_tiles)
+    else:
+        tile_factor = (image_scale / 0.75) ** 2 * ((1 - 0.20) / (1 - tile_overlap)) ** 2
+    classification = image_count * baseline * tile_factor * batch_time_factor(prompt_batch_size)
     return classification + max(180, min(1200, image_count * 2.0))
 
 
@@ -129,7 +178,10 @@ class OptionsWindow:
         self.session = session
         session_data = json.loads((session / "session.json").read_text(encoding="utf-8"))
         self.image_count = int(session_data.get("image_count", 0))
-        self.baseline = historical_seconds_per_image(session.parent)
+        self.image_sizes = [tuple(size) for size in session_data.get("image_sizes", [])]
+        self.baseline = historical_seconds_per_image(
+            session.parent, self.image_sizes, str(session_data.get("project", ""))
+        )
         self.root = Tk()
         self.root.title("SAM 3 – Start und Einstellungen")
         self.root.resizable(False, False)
@@ -286,6 +338,7 @@ class OptionsWindow:
             min_views,
             self.baseline,
             prompt_batch_size,
+            self.image_sizes,
         )
         self.estimate.set(f"Geschätzte Laufzeit: {format_duration(estimate)}")
 
@@ -328,6 +381,7 @@ class OptionsWindow:
                         min_views,
                         self.baseline,
                         prompt_batch_size,
+                        self.image_sizes,
                     )
                 ),
                 "settings_override": settings_override(

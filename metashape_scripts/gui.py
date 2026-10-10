@@ -63,15 +63,21 @@ def launch_options(session):
     return process.wait() == 0 and (session / "options.json").is_file()
 
 
-def enabled_image_count(document):
-    """Count the camera images that the default all-chunks workflow will process."""
-    return sum(
-        1
-        for chunk in document.chunks
-        if getattr(chunk, "enabled", True)
-        for camera in chunk.cameras
-        if getattr(camera, "enabled", True) and getattr(camera, "photo", None) is not None
-    )
+def enabled_image_sizes(document):
+    """Read enabled camera dimensions without loading all photos into Metashape memory."""
+    sizes = []
+    for chunk in document.chunks:
+        if not getattr(chunk, "enabled", True):
+            continue
+        for camera in chunk.cameras:
+            if not getattr(camera, "enabled", True) or getattr(camera, "photo", None) is None:
+                continue
+            calibration = getattr(getattr(camera, "sensor", None), "calibration", None)
+            width = int(getattr(calibration, "width", 0) or 0)
+            height = int(getattr(calibration, "height", 0) or 0)
+            if width > 0 and height > 0:
+                sizes.append([width, height])
+    return sizes
 
 
 def run_worker(action, session):
@@ -192,7 +198,15 @@ def start():
             session / "session.json",
             {
                 "project": str(Path(document.path).resolve()),
-                "image_count": enabled_image_count(document),
+                "image_count": sum(
+                    1
+                    for chunk in document.chunks
+                    for camera in chunk.cameras
+                    if getattr(chunk, "enabled", True)
+                    and getattr(camera, "enabled", True)
+                    and getattr(camera, "photo", None) is not None
+                ),
+                "image_sizes": enabled_image_sizes(document),
             },
         )
         if not launch_options(session):
