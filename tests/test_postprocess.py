@@ -89,6 +89,41 @@ def test_postprocess_rejects_vertical_road_surfaces(tmp_path):
     assert np.all(filtered == 1)
 
 
+def test_postprocess_rejects_ground_points_above_or_below_local_ground(tmp_path):
+    surface = np.array(
+        [[x, y, 0.05 * x] for x in (-0.2, 0.0, 0.2) for y in (-0.2, 0.0, 0.2)],
+        dtype=np.float32,
+    )
+    detached = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]], dtype=np.float32)
+    points = np.vstack((surface, detached))
+    labels = np.full(len(points), 2, dtype=np.uint8)
+    shares = np.full(len(points), 0.95, dtype=np.float32)
+    config = settings()
+    config.ground = {
+        "horizontal_radius_m": 0.5,
+        "neighbors": 10,
+        "min_ground_neighbors": 6,
+        "max_offset_m": 0.15,
+    }
+
+    filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
+
+    assert np.all(filtered[: len(surface)] == 2)
+    assert np.all(filtered[-2:] == 1)
+
+
+def test_postprocess_keeps_sparse_ground_without_a_local_plane(tmp_path):
+    points = np.array([[0.0, 0.0, 5.0]], dtype=np.float32)
+    labels = np.array([2], dtype=np.uint8)
+    shares = np.array([0.95], dtype=np.float32)
+
+    filtered = apply_postprocess(
+        points, labels, shares, classes(), settings(), tmp_path, batch_size=32
+    )
+
+    assert filtered[0] == 2
+
+
 def test_sparse_road_point_is_not_rejected_without_a_plane():
     points = np.array([[0.0, 0.0, 0.0]], dtype=np.float32)
     labels = np.array([11], dtype=np.uint8)

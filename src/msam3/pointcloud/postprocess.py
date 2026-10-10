@@ -162,6 +162,81 @@ def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
     return repaired
 
 
+def _reject_ground_height_outliers(points, labels, classes, config, batch_size):
+    """Remove ground labels that are vertically detached from a supported local plane."""
+    ground_config = config.ground
+    if not ground_config.enabled or ground_config.ground_class not in {
+        item.name for item in classes.classes
+    }:
+        return 0
+    ground_code = _class_codes(classes, [ground_config.ground_class])[ground_config.ground_class]
+    snapshot = labels.copy()
+    ground_ids = np.flatnonzero(snapshot == ground_code)
+    if len(ground_ids) <= ground_config.min_ground_neighbors:
+        return 0
+
+    horizontal_tree = cKDTree(points[ground_ids, :2])
+    rejected = 0
+    neighbour_count = min(ground_config.neighbors + 1, len(ground_ids))
+    for start in range(0, len(ground_ids), batch_size):
+        selected = ground_ids[start : start + batch_size]
+        distances, indices = horizontal_tree.query(
+            points[selected, :2],
+            k=neighbour_count,
+            distance_upper_bound=ground_config.horizontal_radius_m,
+            workers=-1,
+        )
+        distances = np.asarray(distances).reshape(len(selected), -1)
+        indices = np.asarray(indices).reshape(len(selected), -1)
+        valid = (indices < len(ground_ids)) & np.isfinite(distances)
+        safe = np.minimum(indices, len(ground_ids) - 1)
+        neighbour_ids = ground_ids[safe]
+        # Do not let a candidate itself define the plane it is tested against.
+        valid &= neighbour_ids != selected[:, None]
+        neighbours = points[neighbour_ids].astype(np.float64, copy=False)
+        valid_count = valid.sum(axis=1)
+        usable = valid_count >= ground_config.min_ground_neighbors
+        if not np.any(usable):
+            continue
+        selected_usable = selected[usable]
+        neighbour_xy = neighbours[usable, :, :2]
+        neighbour_z = neighbours[usable, :, 2]
+        usable_valid = valid[usable]
+
+        # Fit height as z = ax + by + c. This deliberately refuses vertical planes:
+        # a vertically stacked artefact must not be able to validate itself as ground.
+        design = np.concatenate((neighbour_xy, np.ones((*neighbour_xy.shape[:2], 1))), axis=2)
+
+        def fit(valid_mask, design=design, neighbour_z=neighbour_z):
+            weighted = design * valid_mask[:, :, None]
+            matrix = np.einsum("bki,bkj->bij", weighted, weighted)
+            rhs = np.einsum("bki,bk->bi", weighted, neighbour_z * valid_mask)
+            return np.einsum("bij,bj->bi", np.linalg.pinv(matrix), rhs)
+
+        coefficients = fit(usable_valid)
+        neighbour_residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
+        inliers = usable_valid & (neighbour_residual <= ground_config.max_offset_m)
+        inlier_count = inliers.sum(axis=1)
+        can_refit = inlier_count >= ground_config.min_ground_neighbors
+        if np.any(can_refit):
+            coefficients[can_refit] = fit(inliers)[can_refit]
+        candidate_design = np.column_stack(
+            (points[selected_usable, :2], np.ones(len(selected_usable)))
+        )
+        residual = np.abs(
+            points[selected_usable, 2] - np.einsum("bi,bi->b", candidate_design, coefficients)
+        )
+        slopes = np.degrees(np.arctan(np.linalg.norm(coefficients[:, :2], axis=1)))
+        reject = (
+            (slopes <= ground_config.max_plane_slope_degrees)
+            & (residual > ground_config.max_offset_m)
+            & can_refit
+        )
+        labels[selected_usable[reject]] = classes.unknown_code
+        rejected += int(reject.sum())
+    return rejected
+
+
 def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
     if not config.road.enabled:
         return 0, None
@@ -246,7 +321,7 @@ def _repair_road_surface(points, labels, classes, config, batch_size, road_code)
 
 
 def apply_postprocess(points, labels, shares, classes, config, directory, batch_size):
-    """Apply NPI outlier removal, small-hole filling, roof, and road geometry rules."""
+    """Apply NPI outlier removal, ground, roof, and road geometry rules."""
     labels = np.asarray(labels, dtype=np.uint8).copy()
     if not config.enabled or not len(labels):
         return labels
@@ -255,6 +330,9 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     tree = cKDTree(points)
     before = Counter(int(code) for code in labels)
     roofs = _repair_flat_roofs(tree, points, labels, classes, config, batch_size)
+    ground_height_rejected = _reject_ground_height_outliers(
+        points, labels, classes, config, batch_size
+    )
     removed = _remove_isolated(
         tree, points, labels, shares, classes.unknown_code, rules, config, batch_size
     )
@@ -275,6 +353,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "road_surface_to_road": road_surface,
             "holes_filled": dict(sorted(filled.items())),
             "flat_roof_ground_to_building": roofs,
+            "ground_height_to_unknown": ground_height_rejected,
         },
     )
     return labels

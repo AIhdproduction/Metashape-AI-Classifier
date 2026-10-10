@@ -77,6 +77,14 @@ postprocess:
     horizontal_radius_m: 0.75
     min_vertical_drop_m: 1.0
     min_building_neighbors: 4
+  ground:
+    enabled: true
+    ground_class: "ground"
+    horizontal_radius_m: 0.75 # Ground reference is a local z=f(x,y) plane, preventing vertically stacked artefacts from validating themselves.
+    neighbors: 16
+    min_ground_neighbors: 8 # Sparse ground has no reliable local plane and is retained.
+    max_plane_slope_degrees: 55 # Do not filter genuine steep terrain.
+    max_offset_m: 0.15 # Points more than 15 cm above or below a supported ground plane become unclassified.
   road:
     enabled: true
     road_class: "road"

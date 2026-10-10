@@ -145,6 +145,18 @@ class BuildingPostprocessConfig(StrictModel):
     min_building_neighbors: Annotated[int, Field(ge=1)] = 4
 
 
+class GroundPostprocessConfig(StrictModel):
+    """Reject ground-labelled points that are detached from the local ground plane."""
+
+    enabled: bool = True
+    ground_class: str = "ground"
+    horizontal_radius_m: Positive = 0.75
+    neighbors: Annotated[int, Field(ge=3, le=64)] = 16
+    min_ground_neighbors: Annotated[int, Field(ge=3, le=64)] = 8
+    max_plane_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 55.0
+    max_offset_m: Annotated[float, Field(gt=0)] = 0.15
+
+
 class RoadPostprocessConfig(StrictModel):
     enabled: bool = True
     road_class: str = "road"
@@ -169,6 +181,7 @@ class PostprocessConfig(StrictModel):
     npi_preserve_confidence: Probability = 0.9
     class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
+    ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
     road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)
 
 
