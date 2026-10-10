@@ -15,7 +15,7 @@ from msam3.metashape_runner import run_metashape
 def test_classes_cli(capsys):
     assert main(["classes"]) == 0
     output = capsys.readouterr().out
-    assert "sidewalk" in output and "64" in output and "72" in output
+    assert "sidewalk" in output and "73" in output and "110" in output
 
 
 def test_missing_checkpoint_before_metashape(tmp_path):

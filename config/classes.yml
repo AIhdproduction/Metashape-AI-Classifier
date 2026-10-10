@@ -1,6 +1,6 @@
 unknown_code: 1
 unknown_color: "#787878" # Cyclone 3DR 2026.1: Unclassified (class 1).
-custom_code_start: 64
+custom_code_start: 120 # Cyclone's documented Custom range, still supported by Metashape import.
 classes:
   - name: ground
     code: 2
@@ -11,9 +11,11 @@ classes:
     prompts: [asphalt road for vehicles, vehicle carriageway, street roadway, drivable asphalt]
     color: "#A0A0A4" # Cyclone 3DR: Road Surface (class 11).
   - name: sidewalk
+    code: 73
     prompts: [pedestrian sidewalk beside roadway, paved footway, walkway next to curb]
     color: "#C8C8C8" # Cyclone 3DR: Side walk (class 73).
   - name: curb
+    code: 74
     prompts: [curb, kerb, curb stone, edge stone]
     color: "#A51464" # Cyclone 3DR: Curbstone (class 74).
   - name: low_vegetation
@@ -21,7 +23,7 @@ classes:
     prompts: [low vegetation, grass, shrubs, bushes]
     color: "#009600" # Cyclone 3DR: Low Vegetation (class 3).
   - name: tree
-    code: 5
+    code: 93
     prompts: [tree, tall vegetation, tree canopy, foliage]
     color: "#004100" # Cyclone 3DR: Tree (class 93).
   - name: building
@@ -29,30 +31,37 @@ classes:
     prompts: [building, house, facade, exterior wall]
     color: "#FF0000" # Cyclone 3DR: Building (class 6).
   - name: vehicle
+    code: 91
     prompts: [vehicle, car, van, truck]
     color: "#F07314" # Cyclone 3DR: Vehicle (class 91).
   - name: construction_machinery
+    code: 67
     prompts: [construction machinery, excavator, digger, bulldozer, loader]
-    color: "#F1C232" # Cyclone 3DR: Worksite equipment (class 151).
+    color: "#F1C232" # Cyclone 3DR: Moving object (67); Worksite equipment 151 is not importable by Metashape.
   - name: utility_pole
+    code: 84
     prompts: [utility pole, light pole, streetlight, lamp post]
     color: "#642929" # Cyclone 3DR: Pole (class 84).
   - name: traffic_sign
+    code: 81
     prompts: [traffic sign, road sign, signpost]
     color: "#6927BB" # Cyclone 3DR: Rail/Road sign (class 81).
   - name: fence
+    code: 77
     prompts: [fence, barrier, railing, gate]
-    color: "#FFF582" # Cyclone 3DR: HCS fencing (class 177).
+    color: "#FFF582" # Cyclone 3DR: Guard rails (77), the closest Metashape-importable class to HCS fencing 177.
   - name: power_line
     code: 14
     prompts: [overhead power line, utility wire, cable]
     color: "#FFFF00" # Cyclone 3DR: Wire - Conductor (class 14).
   - name: scaffolding
+    code: 110
     prompts: [scaffolding, construction scaffold]
     color: "#6973DC" # Cyclone 3DR: Steel structure (class 110).
   - name: construction_material
+    code: 76
     prompts: [construction container, site container, building material, construction material]
-    color: "#BEFFE1" # Cyclone 3DR: HCS construction material (class 180).
+    color: "#BEFFE1" # Cyclone 3DR: Manmade object (76), the closest importable class to HCS construction material 180.
   - name: water
     code: 9
     prompts: [water, pond, stream, puddle]

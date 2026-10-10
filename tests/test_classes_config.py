@@ -7,21 +7,27 @@ from msam3.config import Classes, Settings, load_classes, load_settings
 
 def test_default_codes_and_append():
     classes = load_classes()
-    custom = {c.name: c.code for c in classes.classes if c.code >= 64}
-    assert custom == {
-        "sidewalk": 64,
-        "curb": 65,
-        "vehicle": 66,
+    assert {item.name: item.code for item in classes.classes} == {
+        "ground": 2,
+        "road": 11,
+        "sidewalk": 73,
+        "curb": 74,
+        "low_vegetation": 3,
+        "tree": 93,
+        "building": 6,
+        "vehicle": 91,
         "construction_machinery": 67,
-        "utility_pole": 68,
-        "traffic_sign": 69,
-        "fence": 70,
-        "scaffolding": 71,
-        "construction_material": 72,
+        "utility_pole": 84,
+        "traffic_sign": 81,
+        "fence": 77,
+        "power_line": 14,
+        "scaffolding": 110,
+        "construction_material": 76,
+        "water": 9,
     }
     data = classes.model_dump()
     data["classes"].append({"name": "rock", "prompts": ["rock"]})
-    assert Classes.model_validate(data).classes[-1].code == 73
+    assert Classes.model_validate(data).classes[-1].code == 120
 
 
 def test_postprocess_has_a_rule_for_every_default_class():
