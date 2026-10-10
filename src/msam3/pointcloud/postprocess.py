@@ -257,8 +257,8 @@ def _terrain_dem_nodes(points, terrain_ids, config):
     return nodes
 
 
-def _mixed_vegetation_mask(points, labels, candidates, low_code, high_code, cell_size):
-    """Return points belonging to connected vegetation clusters containing both classes."""
+def _vegetation_components(points, labels, candidates, low_code, high_code, cell_size):
+    """Describe 8-connected vegetation components in a horizontal grid."""
     cells = np.floor(points[candidates, :2] / cell_size).astype(np.int64)
     unique, inverse = np.unique(cells, axis=0, return_inverse=True)
     low_cells = np.zeros(len(unique), dtype=bool)
@@ -291,52 +291,35 @@ def _mixed_vegetation_mask(points, labels, candidates, low_code, high_code, cell
     component_high = np.zeros(len(unique), dtype=bool)
     np.logical_or.at(component_low, roots, low_cells)
     np.logical_or.at(component_high, roots, high_cells)
-    return (component_low[roots] & component_high[roots])[inverse]
-
-
-def _split_vegetation_height(points, labels, classes, config, batch_size):
-    """Use a terrain DEM only to split connected mixed vegetation clusters."""
-    vegetation = config.vegetation
-    available = {item.name for item in classes.classes}
-    required = {vegetation.low_vegetation_class, vegetation.high_vegetation_class}
-    empty = {"dem_nodes": 0, "mixed_cluster_points": 0, "reclassified": {}}
-    if not vegetation.enabled or not required.issubset(available):
-        return empty
-    codes = _class_codes(
-        classes, [vegetation.low_vegetation_class, vegetation.high_vegetation_class]
+    candidate_components = roots[inverse]
+    return (
+        candidate_components,
+        component_low[candidate_components] & component_high[candidate_components],
+        component_high,
     )
-    low_code = codes[vegetation.low_vegetation_class]
-    high_code = codes[vegetation.high_vegetation_class]
-    snapshot = labels.copy()
-    terrain_codes = np.asarray(vegetation.terrain_class_codes, dtype=np.uint8)
-    terrain_ids = np.flatnonzero(np.isin(snapshot, terrain_codes))
-    candidates = np.flatnonzero(np.isin(snapshot, [low_code, high_code]))
-    if len(terrain_ids) < vegetation.min_dem_neighbors or not len(candidates):
-        return empty
-    mixed_mask = _mixed_vegetation_mask(
-        points, snapshot, candidates, low_code, high_code, vegetation.cluster_cell_size_m
-    )
-    candidates = candidates[mixed_mask]
-    if not len(candidates):
-        return empty
 
-    nodes = _terrain_dem_nodes(points, terrain_ids, vegetation)
+
+def _sample_dem_heights(points, candidate_ids, nodes, config, batch_size):
+    """Sample local terrain planes from an in-memory DTM without writing temporary files."""
+    heights = np.full(len(candidate_ids), np.nan, dtype=np.float64)
+    supported_surface = np.zeros(len(candidate_ids), dtype=bool)
+    if len(nodes) < config.min_dem_neighbors or not len(candidate_ids):
+        return heights, supported_surface
+
     dem_tree = cKDTree(nodes[:, :2])
-    neighbour_count = min(vegetation.interpolation_neighbors, len(nodes))
-    changed = Counter()
-    tolerance = vegetation.high_vegetation_min_height_m * vegetation.threshold_tolerance
-    for start in range(0, len(candidates), batch_size):
-        selected = candidates[start : start + batch_size]
+    neighbour_count = min(config.interpolation_neighbors, len(nodes))
+    for start in range(0, len(candidate_ids), batch_size):
+        selected = candidate_ids[start : start + batch_size]
         distances, indices = dem_tree.query(
             points[selected, :2],
             k=neighbour_count,
-            distance_upper_bound=vegetation.interpolation_radius_m,
+            distance_upper_bound=config.interpolation_radius_m,
             workers=-1,
         )
         distances = np.asarray(distances).reshape(len(selected), -1)
         indices = np.asarray(indices).reshape(len(selected), -1)
         valid = (indices < len(nodes)) & np.isfinite(distances)
-        usable = valid.sum(axis=1) >= vegetation.min_dem_neighbors
+        usable = valid.sum(axis=1) >= config.min_dem_neighbors
         if not np.any(usable):
             continue
         safe = np.minimum(indices, len(nodes) - 1)
@@ -347,8 +330,8 @@ def _split_vegetation_height(points, labels, classes, config, batch_size):
         usable_valid = valid[usable]
         design, coefficients = _fit_height_planes(neighbour_xy, neighbour_z, usable_valid)
         residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
-        inliers = usable_valid & (residual <= vegetation.max_dem_residual_m)
-        supported = inliers.sum(axis=1) >= vegetation.min_dem_neighbors
+        inliers = usable_valid & (residual <= config.max_dem_residual_m)
+        supported = inliers.sum(axis=1) >= config.min_dem_neighbors
         if np.any(supported):
             coefficients[supported] = _fit_height_planes(neighbour_xy, neighbour_z, inliers)[1][
                 supported
@@ -356,19 +339,111 @@ def _split_vegetation_height(points, labels, classes, config, batch_size):
         candidate_design = np.column_stack(
             (points[selected_usable, :2], np.ones(len(selected_usable)))
         )
-        height = points[selected_usable, 2] - np.einsum("bi,bi->b", candidate_design, coefficients)
+        sampled_height = points[selected_usable, 2] - np.einsum(
+            "bi,bi->b", candidate_design, coefficients
+        )
         slopes = np.degrees(np.arctan(np.linalg.norm(coefficients[:, :2], axis=1)))
-        valid_surface = supported & (slopes <= vegetation.max_dem_slope_degrees)
-        proposed = labels[selected_usable].copy()
-        proposed[height < vegetation.high_vegetation_min_height_m - tolerance] = low_code
-        proposed[height >= vegetation.high_vegetation_min_height_m + tolerance] = high_code
-        replace = valid_surface & (labels[selected_usable] != proposed)
-        for code in np.unique(proposed[replace]):
-            changed[int(code)] += int((proposed[replace] == code).sum())
-        labels[selected_usable[replace]] = proposed[replace]
+        accepted = supported & (slopes <= config.max_dem_slope_degrees)
+        accepted_positions = start + np.flatnonzero(usable)[accepted]
+        heights[accepted_positions] = sampled_height[accepted]
+        supported_surface[accepted_positions] = True
+    return heights, supported_surface
+
+
+def _split_vegetation_height(points, labels, classes, config, batch_size):
+    """Split mixed vegetation with trusted terrain, preserving connected tree crowns."""
+    vegetation = config.vegetation
+    available = {item.name for item in classes.classes}
+    required = {vegetation.low_vegetation_class, vegetation.high_vegetation_class}
+    empty = {
+        "dem_nodes": 0,
+        "trusted_dem_nodes": 0,
+        "fallback_dem_nodes": 0,
+        "fallback_points_used": 0,
+        "mixed_cluster_points": 0,
+        "tree_cluster_points": 0,
+        "reclassified": {},
+    }
+    if not vegetation.enabled or not required.issubset(available):
+        return empty
+    codes = _class_codes(
+        classes, [vegetation.low_vegetation_class, vegetation.high_vegetation_class]
+    )
+    low_code = codes[vegetation.low_vegetation_class]
+    high_code = codes[vegetation.high_vegetation_class]
+    snapshot = labels.copy()
+    trusted_codes = np.asarray(vegetation.terrain_class_codes, dtype=np.uint8)
+    fallback_codes = np.asarray(vegetation.fallback_terrain_class_codes, dtype=np.uint8)
+    trusted_ids = np.flatnonzero(np.isin(snapshot, trusted_codes))
+    fallback_ids = np.flatnonzero(np.isin(snapshot, fallback_codes))
+    candidates = np.flatnonzero(np.isin(snapshot, [low_code, high_code]))
+    if not len(candidates):
+        return empty
+
+    trusted_nodes = (
+        _terrain_dem_nodes(points, trusted_ids, vegetation)
+        if len(trusted_ids) >= vegetation.min_dem_neighbors
+        else np.empty((0, 3), dtype=np.float64)
+    )
+    # Wires and guard rails are only a reserve. They are consulted after trusted terrain
+    # (ground, water, road, sidewalk, curb) could not support a local DTM sample.
+    all_terrain_ids = np.flatnonzero(
+        np.isin(snapshot, np.concatenate((trusted_codes, fallback_codes)))
+    )
+    fallback_nodes = (
+        _terrain_dem_nodes(points, all_terrain_ids, vegetation)
+        if len(fallback_ids) and len(all_terrain_ids) >= vegetation.min_dem_neighbors
+        else np.empty((0, 3), dtype=np.float64)
+    )
+    if (
+        len(trusted_nodes) < vegetation.min_dem_neighbors
+        and len(fallback_nodes) < vegetation.min_dem_neighbors
+    ):
+        return empty
+
+    components, mixed_mask, component_has_high = _vegetation_components(
+        points, snapshot, candidates, low_code, high_code, vegetation.cluster_cell_size_m
+    )
+    heights, valid_surface = _sample_dem_heights(
+        points, candidates, trusted_nodes, vegetation, batch_size
+    )
+    fallback_points_used = 0
+    missing = np.flatnonzero(~valid_surface)
+    if len(missing) and len(fallback_nodes) >= vegetation.min_dem_neighbors:
+        fallback_heights, fallback_valid = _sample_dem_heights(
+            points, candidates[missing], fallback_nodes, vegetation, batch_size
+        )
+        accepted_missing = missing[fallback_valid]
+        heights[accepted_missing] = fallback_heights[fallback_valid]
+        valid_surface[accepted_missing] = True
+        fallback_points_used = int(len(accepted_missing))
+
+    component_tall = np.zeros(len(component_has_high), dtype=bool)
+    valid_heights = valid_surface & np.isfinite(heights)
+    np.logical_or.at(
+        component_tall,
+        components[valid_heights],
+        heights[valid_heights] >= vegetation.tree_cluster_min_height_m,
+    )
+    tree_cluster_mask = component_has_high[components] & component_tall[components]
+    tolerance = vegetation.high_vegetation_min_height_m * vegetation.threshold_tolerance
+    proposed = snapshot[candidates].copy()
+    regular = mixed_mask & valid_surface & ~tree_cluster_mask
+    proposed[regular & (heights < vegetation.high_vegetation_min_height_m - tolerance)] = low_code
+    proposed[regular & (heights >= vegetation.high_vegetation_min_height_m + tolerance)] = high_code
+    # A component which SAM already identified as a tree and whose crown is high enough
+    # stays high as a whole. This retains trunks and lower crown points in class 5.
+    proposed[tree_cluster_mask] = high_code
+    replace = labels[candidates] != proposed
+    changed = Counter(int(code) for code in proposed[replace])
+    labels[candidates[replace]] = proposed[replace]
     return {
-        "dem_nodes": int(len(nodes)),
-        "mixed_cluster_points": int(len(candidates)),
+        "dem_nodes": int(len(trusted_nodes) + len(fallback_nodes)),
+        "trusted_dem_nodes": int(len(trusted_nodes)),
+        "fallback_dem_nodes": int(len(fallback_nodes)),
+        "fallback_points_used": fallback_points_used,
+        "mixed_cluster_points": int(mixed_mask.sum()),
+        "tree_cluster_points": int(tree_cluster_mask.sum()),
         "reclassified": dict(sorted(changed.items())),
     }
 

@@ -181,7 +181,8 @@ class VegetationPostprocessConfig(StrictModel):
     enabled: bool = True
     low_vegetation_class: str = "low_vegetation"
     high_vegetation_class: str = "tree"
-    terrain_class_codes: list[Code] = [2, 9, 11, 14, 73, 74, 77]
+    terrain_class_codes: list[Code] = [2, 9, 11, 73, 74]
+    fallback_terrain_class_codes: list[Code] = [14, 77]
     dem_grid_size_m: Positive = 0.25
     max_dem_nodes: Annotated[int, Field(ge=1000)] = 500_000
     interpolation_radius_m: Positive = 2.0
@@ -192,6 +193,7 @@ class VegetationPostprocessConfig(StrictModel):
     high_vegetation_min_height_m: Annotated[float, Field(ge=0)] = 1.2
     threshold_tolerance: Probability = 0.1
     cluster_cell_size_m: Positive = 0.5
+    tree_cluster_min_height_m: Positive = 1.5
 
 
 class RoadPostprocessConfig(StrictModel):

@@ -135,9 +135,12 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
         ],
         dtype=np.float32,
     )
-    vegetation = np.array([[0.0, 0.0, 0.2], [0.0, 0.0, 0.8], [3.0, 0.0, 0.2]], dtype=np.float32)
+    vegetation = np.array(
+        [[0.0, 0.0, 0.2], [0.0, 0.0, 0.8], [3.0, 0.0, 0.2], [3.0, 0.0, 1.6]],
+        dtype=np.float32,
+    )
     points = np.vstack((terrain, vegetation))
-    labels = np.array([2] * len(terrain) + [5, 3, 5], dtype=np.uint8)
+    labels = np.array([2] * len(terrain) + [5, 3, 3, 5], dtype=np.uint8)
     shares = np.full(len(points), 0.95, dtype=np.float32)
     config = settings()
     config.vegetation = {
@@ -152,9 +155,10 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
 
     filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
 
-    assert filtered[-3] == 3  # Mixed cluster: 20 cm is low vegetation.
-    assert filtered[-2] == 5  # Mixed cluster: 80 cm is high vegetation.
-    assert filtered[-1] == 5  # A pure tree cluster stays high even at 20 cm.
+    assert filtered[-4] == 3  # Mixed cluster: 20 cm is low vegetation.
+    assert filtered[-3] == 5  # Mixed cluster: 80 cm is high vegetation.
+    assert filtered[-2] == 5  # Tree trunk stays high when its connected crown reaches 1.5 m.
+    assert filtered[-1] == 5
 
 
 def test_sparse_road_point_is_not_rejected_without_a_plane():
