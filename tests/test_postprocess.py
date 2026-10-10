@@ -127,26 +127,34 @@ def test_postprocess_keeps_sparse_ground_without_a_local_plane(tmp_path):
 
 def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
     terrain = np.array(
-        [[x, y, 0.05 * x] for x in (-0.4, 0.0, 0.4) for y in (-0.4, 0.0, 0.4)],
+        [
+            [origin + x, y, 0.05 * x]
+            for origin in (0.0, 3.0)
+            for x in (-0.4, 0.0, 0.4)
+            for y in (-0.4, 0.0, 0.4)
+        ],
         dtype=np.float32,
     )
-    vegetation = np.array([[0.0, 0.0, 0.6], [0.0, 0.0, 1.2]], dtype=np.float32)
+    vegetation = np.array([[0.0, 0.0, 0.2], [0.0, 0.0, 0.8], [3.0, 0.0, 0.2]], dtype=np.float32)
     points = np.vstack((terrain, vegetation))
-    labels = np.array([2] * len(terrain) + [5, 3], dtype=np.uint8)
+    labels = np.array([2] * len(terrain) + [5, 3, 5], dtype=np.uint8)
     shares = np.full(len(points), 0.95, dtype=np.float32)
     config = settings()
     config.vegetation = {
-        "horizontal_radius_m": 1.0,
-        "neighbors": 9,
-        "min_terrain_neighbors": 6,
-        "max_terrain_residual_m": 0.1,
-        "high_vegetation_min_height_m": 1.2,
+        "dem_grid_size_m": 0.1,
+        "interpolation_radius_m": 1.0,
+        "interpolation_neighbors": 9,
+        "min_dem_neighbors": 6,
+        "max_dem_residual_m": 0.1,
+        "high_vegetation_min_height_m": 0.5,
+        "cluster_cell_size_m": 0.5,
     }
 
     filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
 
-    assert filtered[-2] == 3
-    assert filtered[-1] == 5
+    assert filtered[-3] == 3  # Mixed cluster: 20 cm is low vegetation.
+    assert filtered[-2] == 5  # Mixed cluster: 80 cm is high vegetation.
+    assert filtered[-1] == 5  # A pure tree cluster stays high even at 20 cm.
 
 
 def test_sparse_road_point_is_not_rejected_without_a_plane():

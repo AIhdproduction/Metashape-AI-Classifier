@@ -241,57 +241,114 @@ def _reject_ground_height_outliers(points, labels, classes, config, batch_size):
     return rejected
 
 
+def _terrain_dem_nodes(points, terrain_ids, config):
+    """Build a bounded in-memory 2.5D terrain mesh from the requested class codes."""
+    grid_size = config.dem_grid_size_m
+    while True:
+        cells = np.floor(points[terrain_ids, :2] / grid_size).astype(np.int64)
+        unique, inverse = np.unique(cells, axis=0, return_inverse=True)
+        if len(unique) <= config.max_dem_nodes:
+            break
+        grid_size *= np.sqrt(len(unique) / config.max_dem_nodes) * 1.01
+    heights = np.full(len(unique), np.inf, dtype=np.float64)
+    # The lowest support in each cell prevents curbs, fences, and wires from lifting the DTM.
+    np.minimum.at(heights, inverse, points[terrain_ids, 2])
+    nodes = np.column_stack(((unique.astype(np.float64) + 0.5) * grid_size, heights))
+    return nodes
+
+
+def _mixed_vegetation_mask(points, labels, candidates, low_code, high_code, cell_size):
+    """Return points belonging to connected vegetation clusters containing both classes."""
+    cells = np.floor(points[candidates, :2] / cell_size).astype(np.int64)
+    unique, inverse = np.unique(cells, axis=0, return_inverse=True)
+    low_cells = np.zeros(len(unique), dtype=bool)
+    high_cells = np.zeros(len(unique), dtype=bool)
+    np.logical_or.at(low_cells, inverse, labels[candidates] == low_code)
+    np.logical_or.at(high_cells, inverse, labels[candidates] == high_code)
+
+    parent = np.arange(len(unique), dtype=np.intp)
+
+    def root(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def join(left, right):
+        left, right = root(left), root(right)
+        if left != right:
+            parent[right] = left
+
+    lookup = {(int(cell[0]), int(cell[1])): index for index, cell in enumerate(unique)}
+    for index, cell in enumerate(unique):
+        x, y = int(cell[0]), int(cell[1])
+        for offset in ((0, 1), (1, -1), (1, 0), (1, 1)):
+            neighbour = lookup.get((x + offset[0], y + offset[1]))
+            if neighbour is not None:
+                join(index, neighbour)
+    roots = np.fromiter((root(index) for index in range(len(unique))), dtype=np.intp)
+    component_low = np.zeros(len(unique), dtype=bool)
+    component_high = np.zeros(len(unique), dtype=bool)
+    np.logical_or.at(component_low, roots, low_cells)
+    np.logical_or.at(component_high, roots, high_cells)
+    return (component_low[roots] & component_high[roots])[inverse]
+
+
 def _split_vegetation_height(points, labels, classes, config, batch_size):
-    """Classify low/high vegetation from terrain-relative height without changing other classes."""
+    """Use a terrain DEM only to split connected mixed vegetation clusters."""
     vegetation = config.vegetation
     available = {item.name for item in classes.classes}
     required = {vegetation.low_vegetation_class, vegetation.high_vegetation_class}
+    empty = {"dem_nodes": 0, "mixed_cluster_points": 0, "reclassified": {}}
     if not vegetation.enabled or not required.issubset(available):
-        return Counter()
-    terrain_names = [name for name in vegetation.terrain_classes if name in available]
-    if not terrain_names:
-        return Counter()
+        return empty
     codes = _class_codes(
-        classes, [vegetation.low_vegetation_class, vegetation.high_vegetation_class, *terrain_names]
+        classes, [vegetation.low_vegetation_class, vegetation.high_vegetation_class]
     )
     low_code = codes[vegetation.low_vegetation_class]
     high_code = codes[vegetation.high_vegetation_class]
     snapshot = labels.copy()
-    terrain_codes = np.array([codes[name] for name in terrain_names], dtype=np.uint8)
+    terrain_codes = np.asarray(vegetation.terrain_class_codes, dtype=np.uint8)
     terrain_ids = np.flatnonzero(np.isin(snapshot, terrain_codes))
     candidates = np.flatnonzero(np.isin(snapshot, [low_code, high_code]))
-    if len(terrain_ids) < vegetation.min_terrain_neighbors or not len(candidates):
-        return Counter()
+    if len(terrain_ids) < vegetation.min_dem_neighbors or not len(candidates):
+        return empty
+    mixed_mask = _mixed_vegetation_mask(
+        points, snapshot, candidates, low_code, high_code, vegetation.cluster_cell_size_m
+    )
+    candidates = candidates[mixed_mask]
+    if not len(candidates):
+        return empty
 
-    terrain_tree = cKDTree(points[terrain_ids, :2])
-    neighbour_count = min(vegetation.neighbors, len(terrain_ids))
+    nodes = _terrain_dem_nodes(points, terrain_ids, vegetation)
+    dem_tree = cKDTree(nodes[:, :2])
+    neighbour_count = min(vegetation.interpolation_neighbors, len(nodes))
     changed = Counter()
+    tolerance = vegetation.high_vegetation_min_height_m * vegetation.threshold_tolerance
     for start in range(0, len(candidates), batch_size):
         selected = candidates[start : start + batch_size]
-        distances, indices = terrain_tree.query(
+        distances, indices = dem_tree.query(
             points[selected, :2],
             k=neighbour_count,
-            distance_upper_bound=vegetation.horizontal_radius_m,
+            distance_upper_bound=vegetation.interpolation_radius_m,
             workers=-1,
         )
         distances = np.asarray(distances).reshape(len(selected), -1)
         indices = np.asarray(indices).reshape(len(selected), -1)
-        valid = (indices < len(terrain_ids)) & np.isfinite(distances)
-        valid_count = valid.sum(axis=1)
-        usable = valid_count >= vegetation.min_terrain_neighbors
+        valid = (indices < len(nodes)) & np.isfinite(distances)
+        usable = valid.sum(axis=1) >= vegetation.min_dem_neighbors
         if not np.any(usable):
             continue
-        safe = np.minimum(indices, len(terrain_ids) - 1)
-        neighbours = points[terrain_ids[safe]].astype(np.float64, copy=False)
+        safe = np.minimum(indices, len(nodes) - 1)
         selected_usable = selected[usable]
-        neighbour_xy = neighbours[usable, :, :2]
-        neighbour_z = neighbours[usable, :, 2]
+        neighbours = nodes[safe][usable]
+        neighbour_xy = neighbours[:, :, :2]
+        neighbour_z = neighbours[:, :, 2]
         usable_valid = valid[usable]
         design, coefficients = _fit_height_planes(neighbour_xy, neighbour_z, usable_valid)
-        neighbour_residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
-        inliers = usable_valid & (neighbour_residual <= vegetation.max_terrain_residual_m)
-        inlier_count = inliers.sum(axis=1)
-        supported = inlier_count >= vegetation.min_terrain_neighbors
+        residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
+        inliers = usable_valid & (residual <= vegetation.max_dem_residual_m)
+        supported = inliers.sum(axis=1) >= vegetation.min_dem_neighbors
         if np.any(supported):
             coefficients[supported] = _fit_height_planes(neighbour_xy, neighbour_z, inliers)[1][
                 supported
@@ -301,15 +358,19 @@ def _split_vegetation_height(points, labels, classes, config, batch_size):
         )
         height = points[selected_usable, 2] - np.einsum("bi,bi->b", candidate_design, coefficients)
         slopes = np.degrees(np.arctan(np.linalg.norm(coefficients[:, :2], axis=1)))
-        valid_surface = supported & (slopes <= vegetation.max_terrain_slope_degrees)
-        proposed = np.where(
-            height >= vegetation.high_vegetation_min_height_m, high_code, low_code
-        ).astype(np.uint8)
+        valid_surface = supported & (slopes <= vegetation.max_dem_slope_degrees)
+        proposed = labels[selected_usable].copy()
+        proposed[height < vegetation.high_vegetation_min_height_m - tolerance] = low_code
+        proposed[height >= vegetation.high_vegetation_min_height_m + tolerance] = high_code
         replace = valid_surface & (labels[selected_usable] != proposed)
         for code in np.unique(proposed[replace]):
             changed[int(code)] += int((proposed[replace] == code).sum())
         labels[selected_usable[replace]] = proposed[replace]
-    return changed
+    return {
+        "dem_nodes": int(len(nodes)),
+        "mixed_cluster_points": int(len(candidates)),
+        "reclassified": dict(sorted(changed.items())),
+    }
 
 
 def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
@@ -430,7 +491,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "holes_filled": dict(sorted(filled.items())),
             "flat_roof_ground_to_building": roofs,
             "ground_height_to_unknown": ground_height_rejected,
-            "vegetation_height_reclassified": dict(sorted(vegetation_height.items())),
+            "vegetation_dem": vegetation_height,
         },
     )
     return labels

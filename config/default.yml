@@ -103,13 +103,17 @@ postprocess:
     enabled: true
     low_vegetation_class: "low_vegetation"
     high_vegetation_class: "tree" # The existing tree class represents high vegetation.
-    terrain_classes: [ground, road, sidewalk]
-    horizontal_radius_m: 1.5
-    neighbors: 16
-    min_terrain_neighbors: 8
-    max_terrain_slope_degrees: 55
-    max_terrain_residual_m: 0.15
-    high_vegetation_min_height_m: 1.2 # At or above 1.20 m above local terrain: high vegetation.
+    terrain_class_codes: [2, 9, 11, 14, 73, 74, 77] # Requested Metashape/Cyclone terrain-support classes.
+    dem_grid_size_m: 0.25 # The in-memory DTM mesh spacing in metres.
+    max_dem_nodes: 500000 # Coarsens the grid automatically if a project has more nodes.
+    interpolation_radius_m: 2.0
+    interpolation_neighbors: 8
+    min_dem_neighbors: 6
+    max_dem_slope_degrees: 55
+    max_dem_residual_m: 0.15
+    high_vegetation_min_height_m: 0.5 # High vegetation at 50 cm above the DTM.
+    threshold_tolerance: 0.1 # Keep SAM's class inside the 45–55 cm transition band.
+    cluster_cell_size_m: 0.5 # Apply the DTM split only to connected mixed vegetation clusters.
   road:
     enabled: true
     road_class: "road"

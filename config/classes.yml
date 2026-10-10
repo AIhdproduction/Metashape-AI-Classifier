@@ -23,9 +23,9 @@ classes:
     prompts: [low vegetation, grass, shrubs, bushes]
     color: "#009600" # Cyclone 3DR: Low Vegetation (class 3).
   - name: tree
-    code: 93
+    code: 5
     prompts: [tree, tall vegetation, tree canopy, foliage]
-    color: "#004100" # Cyclone 3DR: Tree (class 93).
+    color: "#004100" # ASPRS LAS: High Vegetation (class 5).
   - name: building
     code: 6
     prompts: [building, house, facade, exterior wall]

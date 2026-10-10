@@ -13,7 +13,7 @@ def test_default_codes_and_append():
         "sidewalk": 73,
         "curb": 74,
         "low_vegetation": 3,
-        "tree": 93,
+        "tree": 5,
         "building": 6,
         "vehicle": 91,
         "construction_machinery": 67,
