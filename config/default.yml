@@ -43,6 +43,20 @@ voting:
   max_ram_gb: 16 # Vote-matrix memory budget in GiB.
   batch_points: 500000 # Bounded projection, I/O, and propagation batches.
   voxel_buckets: 256 # Disk partitions for bounded-memory voxel selection.
+ground_assist:
+  enabled: true # Metashape terrain is only used to resolve SAM-unknown points.
+  classify_before_export: true # Run Metashape's ground classifier for Created and Unclassified source points.
+  source_classes: [created, unclassified] # Never overwrite already classified source points.
+  max_angle_degrees: 15
+  max_distance_m: 0.3
+  max_terrain_slope_degrees: 35
+  cell_size_m: 10
+  erosion_radius_m: 0.5
+  ground_like_classes: [ground, road, sidewalk] # SAM may choose freely among these surface classes.
+  min_sam_ground_share: 0.15 # Use weak SAM surface evidence only where SAM otherwise remained unknown.
+  min_sam_ground_views: 1
+  fallback_class: ground # No SAM surface evidence: retain Metashape's terrain result as ground.
+  fallback_confidence: 0.4
 smoothing:
   enabled: false # Optional voting-cloud kNN majority smoothing.
   k: 8 # Number of neighbours, including the point itself.

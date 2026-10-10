@@ -32,6 +32,7 @@ def prepare(session: Path) -> None:
             "project": project_state(project),
             "chunks": settings.metashape.chunks,
             "depth_maps": settings.visibility.mode == "depth_maps",
+            "ground_assist": settings.ground_assist.model_dump(),
         }
     )
     job = {
@@ -60,6 +61,7 @@ def stage2(session: Path) -> None:
         result = _execute(
             "stage2", project, work, Path(job["output_dir"]), settings, classes, False
         )
+    job = json.loads(job_path.read_text(encoding="utf-8"))
     job["stage3_inputs"] = prepare_stage3_inputs(result["chunks"], job["stage1_identity"], classes)
     atomic_json(job_path, job)
 

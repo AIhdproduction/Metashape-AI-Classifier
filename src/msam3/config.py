@@ -121,6 +121,24 @@ class VotingConfig(StrictModel):
     voxel_buckets: Annotated[int, Field(ge=1, le=4096)] = 256
 
 
+class GroundAssistConfig(StrictModel):
+    """Optional Metashape terrain evidence that may resolve otherwise unknown SAM votes."""
+
+    enabled: bool = True
+    classify_before_export: bool = True
+    source_classes: list[Literal["created", "unclassified"]] = ["created", "unclassified"]
+    max_angle_degrees: Annotated[float, Field(gt=0, le=90)] = 15.0
+    max_distance_m: Positive = 0.3
+    max_terrain_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 35.0
+    cell_size_m: Positive = 10.0
+    erosion_radius_m: Annotated[float, Field(ge=0)] = 0.5
+    ground_like_classes: list[str] = ["ground", "road", "sidewalk"]
+    min_sam_ground_share: Probability = 0.15
+    min_sam_ground_views: Annotated[int, Field(ge=1)] = 1
+    fallback_class: str = "ground"
+    fallback_confidence: Probability = 0.4
+
+
 class SmoothingConfig(StrictModel):
     enabled: bool = False
     k: Annotated[int, Field(ge=1)] = 8
@@ -199,6 +217,7 @@ class Settings(StrictModel):
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     voting: VotingConfig = Field(default_factory=VotingConfig)
+    ground_assist: GroundAssistConfig = Field(default_factory=GroundAssistConfig)
     smoothing: SmoothingConfig = Field(default_factory=SmoothingConfig)
     postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)

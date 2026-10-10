@@ -1,5 +1,7 @@
 """Export immutable dense-cloud geometry and independent camera validation samples."""
 
+import hashlib
+import json
 import logging
 import random
 import re
@@ -23,6 +25,73 @@ from metashape_scripts.common import (
 )
 
 LOG = logging.getLogger("msam3.stage1")
+
+
+def stage1_identity(job):
+    """Mirror the driver's cache identity after an in-place ground classification save."""
+    project = Path(job["project"])
+    paths = [project, project.with_suffix(".files") / "project.zip"]
+    project_state = {
+        str(path): {"bytes": path.stat().st_size, "mtime_ns": path.stat().st_mtime_ns}
+        for path in paths
+        if path.is_file()
+    }
+    value = {
+        "schema": 1,
+        "project": project_state,
+        "chunks": job["settings"]["metashape"]["chunks"],
+        "depth_maps": job["settings"]["visibility"]["mode"] == "depth_maps",
+        "ground_assist": job["settings"]["ground_assist"],
+    }
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def point_class_counts(point_cloud):
+    return {str(int(code)): int(count) for code, count in point_cloud.point_count_by_class.items()}
+
+
+def classify_ground_support(chunk, job, progress=None):
+    """Classify only unclassified source points and expose ground as a SAM hint."""
+    config = job["settings"]["ground_assist"]
+    point_cloud = chunk.point_cloud
+    before = point_class_counts(point_cloud)
+    result = {
+        "enabled": bool(config["enabled"]),
+        "classified_before_export": False,
+        "ground_before": before.get("2", 0),
+        "ground_after": before.get("2", 0),
+        "ground_added": 0,
+    }
+    if not config["enabled"] or not config["classify_before_export"]:
+        return result
+    source_classes = {
+        "created": Metashape.PointClass.Created,
+        "unclassified": Metashape.PointClass.Unclassified,
+    }
+    for source in config["source_classes"]:
+        point_cloud.classifyGroundPoints(
+            max_angle=config["max_angle_degrees"],
+            max_distance=config["max_distance_m"],
+            max_terrain_slope=config["max_terrain_slope_degrees"],
+            cell_size=config["cell_size_m"],
+            erosion_radius=config["erosion_radius_m"],
+            source_class=source_classes[source],
+            keep_existing=True,
+            **({"progress": progress} if progress is not None else {}),
+        )
+    after = point_class_counts(point_cloud)
+    result["classified_before_export"] = True
+    result["ground_after"] = after.get("2", 0)
+    result["ground_added"] = result["ground_after"] - result["ground_before"]
+    LOG.info(
+        "Chunk %s: Metashape ground support %d -> %d points",
+        chunk.label,
+        result["ground_before"],
+        result["ground_after"],
+    )
+    return result
 
 
 def samples_for(chunk, cameras, export_transform, export_crs):
@@ -112,6 +181,7 @@ def export_chunk(chunk, job, progress=None):
         return None
     if chunk.crs is None:
         raise RuntimeError("Chunk CRS is missing: " + chunk.label)
+    ground_assist = classify_ground_support(chunk, job, progress)
     directory = Path(job["work_dir"]) / ("chunk-" + str(chunk.key))
     directory.mkdir(parents=True, exist_ok=True)
     transform = chunk.transform.matrix
@@ -141,6 +211,7 @@ def export_chunk(chunk, job, progress=None):
         "metashape_version": Metashape.app.version,
         "skipped_cameras": dict(skipped),
         "source_signature": source_signature(chunk, records),
+        "metashape_ground_assist": ground_assist,
     }
     validation = samples_for(chunk, cameras, export_transform, export_crs)
     export_cloud(
@@ -184,14 +255,22 @@ def main(job, document=None, progress=None):
         if missing:
             raise RuntimeError("Requested chunk labels do not exist: " + ", ".join(sorted(missing)))
     chunks = []
+    ground_classified = False
     for chunk in document.chunks:
         if (chunk.label in selected) if selected else chunk.enabled:
             result = export_chunk(chunk, job, progress=progress)
             if result is not None:
                 chunks.append(result)
+                metadata = json.loads(
+                    (Path(result["directory"]) / "chunk.json").read_text(encoding="utf-8")
+                )
+                ground_classified |= metadata["metashape_ground_assist"]["classified_before_export"]
     if not chunks:
         raise RuntimeError("No eligible chunks: need aligned frame cameras and chunk.point_cloud")
-    # Deliberately do not save: stage 1 must not change the project.
+    if ground_classified:
+        document.save()
+        job["stage1_identity"] = stage1_identity(job)
+        LOG.info("Saved Metashape ground classification before SAM processing")
     write_json(
         Path(job["work_dir"]) / "stage1_done.json",
         {"schema": 1, "chunks": chunks, "stage1_identity": job["stage1_identity"]},

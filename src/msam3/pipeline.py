@@ -19,11 +19,12 @@ from msam3.pointcloud.smoothing import smooth
 from msam3.pointcloud.spatial import (
     metric_cloud,
     propagate,
+    representative_class_mask,
     spatial_blocks,
     voxel_representatives,
 )
 from msam3.pointcloud.visibility import ZBuffer
-from msam3.pointcloud.voting import Votes
+from msam3.pointcloud.voting import Votes, apply_ground_assist
 from msam3.report import write_report
 from msam3.segmentation.mask_filter import interior_labels
 from msam3.segmentation.sam3_backend import BACKEND_VERSION, SAM_REVISION
@@ -111,6 +112,9 @@ def process_chunk(
         settings.voting.voxel_buckets,
     )
     points = np.asarray(cloud.points[indices])
+    ground_hint = representative_class_mask(
+        directory / "dense.las", indices, 2, settings.voting.batch_points
+    )
     LOG.info(
         "Chunk %s: %d original points -> %d voting points",
         metadata["label"],
@@ -233,6 +237,9 @@ def process_chunk(
         )
         del zbuffer, depth_map
     result, shares = votes.decide()
+    result, shares, ground_assist = apply_ground_assist(
+        result, shares, votes, ground_hint, settings.ground_assist
+    )
     result = smooth(
         points,
         result,
@@ -274,6 +281,7 @@ def process_chunk(
         validation,
         timings,
         len(points),
+        ground_assist,
     )
     atomic_json(directory / "stage2_done.json", {"output": str(output), "report": report})
     return {

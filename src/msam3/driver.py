@@ -116,6 +116,7 @@ def _execute(
             "project": project_state(project),
             "chunks": settings.metashape.chunks,
             "depth_maps": settings.visibility.mode == "depth_maps",
+            "ground_assist": settings.ground_assist.model_dump(),
         }
     )
     job = {
@@ -211,6 +212,7 @@ def _execute(
             "project": project_state(project),
             "chunks": settings.metashape.chunks,
             "depth_maps": settings.visibility.mode == "depth_maps",
+            "ground_assist": settings.ground_assist.model_dump(),
         }
     )
     stage1["stage1_identity"] = job["stage1_identity"]

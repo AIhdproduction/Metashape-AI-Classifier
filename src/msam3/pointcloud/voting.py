@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from msam3.config import Classes, VotingConfig
+from msam3.config import Classes, GroundAssistConfig, VotingConfig
 
 
 class Votes:
@@ -45,3 +45,47 @@ class Votes:
             labels[start : start + len(best)][valid] = code_lookup[best[valid]]
             shares[start : start + len(best)] = share
         return labels, shares
+
+
+def apply_ground_assist(labels, shares, votes: Votes, ground_hint, config: GroundAssistConfig):
+    """Use Metashape terrain only for points that SAM left undecided."""
+    if not config.enabled:
+        return labels, shares, {"metashape_ground_points": 0, "resolved": {}}
+    names = {item.name: (index, item.code) for index, item in enumerate(votes.classes.classes)}
+    candidates = [names[name] for name in config.ground_like_classes if name in names]
+    if not candidates or config.fallback_class not in names:
+        return labels, shares, {"metashape_ground_points": 0, "resolved": {}}
+
+    ground_hint = np.asarray(ground_hint, dtype=bool)
+    if ground_hint.shape != labels.shape:
+        raise ValueError("Metashape ground hint does not match voting points")
+    targets = ground_hint & (labels == votes.classes.unknown_code)
+    if not np.any(targets):
+        return labels, shares, {"metashape_ground_points": int(ground_hint.sum()), "resolved": {}}
+
+    candidate_indices = np.array([index for index, _ in candidates], dtype=np.intp)
+    candidate_codes = np.array([code for _, code in candidates], dtype=np.uint8)
+    target_ids = np.flatnonzero(targets)
+    support = votes.weights[target_ids][:, candidate_indices]
+    best = support.argmax(axis=1)
+    strongest = support[np.arange(len(target_ids)), best]
+    total = votes.weights[target_ids].sum(axis=1)
+    support_share = np.divide(strongest, total, out=np.zeros_like(strongest), where=total > 0)
+    sam_supported = votes.views[target_ids] >= config.min_sam_ground_views
+    sam_supported &= strongest > 0
+    sam_supported &= support_share >= config.min_sam_ground_share
+
+    resolved = {}
+    if np.any(sam_supported):
+        ids = target_ids[sam_supported]
+        codes = candidate_codes[best[sam_supported]]
+        labels[ids] = codes
+        shares[ids] = support_share[sam_supported]
+        resolved.update({str(code): int((codes == code).sum()) for code in np.unique(codes)})
+    fallback_ids = target_ids[~sam_supported]
+    if len(fallback_ids):
+        fallback_code = names[config.fallback_class][1]
+        labels[fallback_ids] = fallback_code
+        shares[fallback_ids] = np.maximum(shares[fallback_ids], config.fallback_confidence)
+        resolved[str(fallback_code)] = resolved.get(str(fallback_code), 0) + len(fallback_ids)
+    return labels, shares, {"metashape_ground_points": int(ground_hint.sum()), "resolved": resolved}

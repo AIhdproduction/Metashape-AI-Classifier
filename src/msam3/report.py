@@ -17,6 +17,7 @@ def write_report(
     validation: dict,
     timings: dict,
     voting_points: int,
+    ground_assist: dict | None = None,
 ):
     total = int(counts.sum())
     report = {
@@ -26,6 +27,7 @@ def write_report(
         "images_used": images,
         "mean_views_per_point": float(views.mean()),
         "mean_views_population": "voxel voting points",
+        "ground_assist": ground_assist or {"metashape_ground_points": 0, "resolved": {}},
         "timing_seconds": timings,
         "validation": validation,
         "classes": [

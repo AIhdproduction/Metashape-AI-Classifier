@@ -170,6 +170,7 @@ def start():
         write_json(session / "launcher_status.json", {"phase": "export"})
         print("SAM 3: Punktwolke und Kameras werden aus Metashape exportiert ...")
         stage1_export.main(job, document=document)
+        write_json(session / "job.json", job)
         Metashape.app.update()
 
         write_json(session / "launcher_status.json", {"phase": "classify"})
