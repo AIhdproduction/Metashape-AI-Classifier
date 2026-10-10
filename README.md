@@ -119,22 +119,40 @@ Keep a normal project backup, particularly for the first real run.
 
 ## Start and resume
 
-Choose one of the following options. **Option 1 is the easiest option** and starts directly
-inside Metashape.
+Choose one of the following options. **Option 1 is the recommended workflow**: it keeps the
+open Metashape project under Metashape's control, imports the result automatically and writes
+the final LAS beside the project.
 
 ### Option 1 — Metashape: Tools → Run Script
 
 1. Open the saved project in Metashape Professional.
 2. Select **Tools → Run Script**.
 3. Choose [`start_in_metashape.py`](start_in_metashape.py) in this repository.
-4. Leave Metashape open until the completion message appears.
+4. The window **SAM 3 – Start und Einstellungen** opens. Choose the options and select
+   **Klassifikation starten**.
+5. Leave Metashape open until the completion message appears.
 
-The script saves the open project, exports its point cloud, validates geometry, runs SAM 3, and
-imports a new **SAM3 classified** point-cloud asset into that same project. At the end it selects
-the asset and switches the model view to **Classification**. It uses the already installed
-`.venv`; it does not start another Metashape instance or reopen the project. The Metashape window
-is unavailable while the GPU is classifying images, which protects the project from edits during
-processing. The original point cloud is preserved.
+The start window applies its choices **only to this run**; it does not modify
+`config/default.yml`. It provides:
+
+- **Schnell**, **Ausgewogen** and **Hohe Genauigkeit** profiles.
+- SAM image resolution, exact tile overlap, minimum image observations and GPU prompt batch.
+- Switches for Metashape ground assistance, geometric postprocessing, DTM vegetation split,
+  road-surface repair and optional kNN smoothing.
+- **Auto: maximal sicher**, which measures currently free CUDA memory and selects the largest
+  conservative prompt batch from 4, 8, 12 and 16. It reserves VRAM for SAM, Windows and
+  Metashape. High GPU utilization can make the computer temporarily less responsive.
+- A run-time estimate. It uses the active camera image sizes, the resulting exact number of
+  1008-pixel SAM tiles, the selected batch, and compatible previous run logs for the same project.
+  It updates immediately when resolution, overlap or batch changes.
+
+After the start choice, a separate topmost **SAM 3 – Metashape-Klassifikation** progress window
+shows the current phase, image counter, percentage, elapsed time and remaining-time estimate.
+Its **Abbrechen** button stops the background worker cleanly. During the run Metashape is protected
+from project edits; use the external window for status and cancellation. The script saves the open
+project, exports the source photo-colored point cloud, validates geometry, runs SAM 3, imports a
+new **SAM3 classified** point-cloud asset, and then selects it with the original photo RGB colors.
+The source point cloud remains unchanged.
 
 ### Option 2 — PowerShell
 
@@ -179,23 +197,42 @@ checkpoint for hash verification. Changes to the saved project invalidate the ex
 
 ## Results
 
-Reopen the project. The new asset is named **SAM3 classified** under each processed chunk.
-Select it and switch the point-cloud view to **Classification**. The original asset remains
-the default unless `metashape.make_default: true` is configured.
+For the Metashape start-window workflow, the result is imported as a new point-cloud asset named
+**SAM3 classified** in every processed chunk. It is selected with the original photo RGB colors,
+so the point cloud keeps its familiar image appearance. Switch Metashape manually to a
+classification display only when you want to inspect numeric LAS classes.
 
-- `output/<project>-<path-hash>/<project>_<chunk>_<key>_classified.las`: final LAS 1.4 in the chunk CRS.
-- `class_legend.json` and `class_legend.csv`: complete class names and prompts alongside LAS files.
+The complete classified LAS is written beside the Metashape project:
+
+```text
+<project folder>\export\punktwolke_class.las
+```
+
+For example, `D:\Test Script\Test_script.psx` produces
+`D:\Test Script\export\punktwolke_class.las`. The import and LAS assembly must both succeed
+before the workflow reports completion. Intermediate processing data stays below the repository's
+`work/` directory; the project folder receives only the promised `export` output.
+
+For the PowerShell workflow, final exports remain under
+`output/<project>-<path-hash>/`. The following artifacts are available for both workflows:
+
+- `class_legend.json` and `class_legend.csv`: class names, codes, colors and prompts.
 - Per-output `.report.json`: coverage, class counts, timing and validation results.
-- `work/<project>-<path-hash>/chunk-<key>/classified_internal.las`: full-resolution stage-2 result
-  in the export CRS. The filename does **not** mean its coordinates are internal; they are
-  geocentric WGS 84 for georeferenced projects, or the local project CRS.
-- `msam3.log`, `stage1_metashape.log`, `stage3_metashape.log`: progress and diagnostic logs.
+- `work/<project>-<path-hash>/chunk-<key>/post_sam_filter/postprocess_report.json`:
+  geometry-cleanup and DTM vegetation decisions.
+- `msam3.log`, `stage1_metashape.log`, `stage2.log` and `stage3_metashape.log`: progress and
+  diagnostic logs.
 
-**Custom-code limitation verified in Metashape 2.3.1:** asset codes 64–72 are retained,
-but native LAS export truncates them. This tool repairs that through class-filtered exports
-and LAS 1.4 assembly. Codes 128–255 were dropped on import; stage 3 rejects these codes before
-import and checks every class count before saving. The standalone stage-2 LAS supports all
-0–255 codes. Custom display names in Metashape may remain numeric/generic; consult the legend.
+The postprocessor works on SAM votes after image-to-point assignment. It can remove isolated
+points, fill small supported holes, restore flat road patches, reject detached ground points,
+repair flat roofs, and split connected mixed vegetation using an in-memory terrain model.
+The vegetation terrain support prioritizes ground, water, road, sidewalk and curb classes;
+wire and guard-rail classes are used only as a fallback. A connected SAM tree cluster with a
+supported crown at least 1.5 m high remains high vegetation as a whole.
+
+**Metashape import limitation:** project-import class codes must stay below 128. The tool checks
+class counts before saving and assembles the final LAS from class-filtered Metashape exports to
+avoid native custom-code export loss. Consult the CSV or JSON legend for full class names.
 
 ## Classes
 
@@ -203,66 +240,73 @@ import and checks every class count before saving. The standalone stage-2 LAS su
 python -m msam3 classes
 ```
 
-| Class | Code | Prompts |
+| Class | LAS code | Meaning |
 |---|---:|---|
-| Unclassified | 1 | Undecided points |
-| ground | 2 | ground, terrain, soil, bare earth |
-| road | 11 | road, street, asphalt, carriageway |
-| sidewalk | 64 | sidewalk, footpath, pedestrian path, pavement |
-| curb | 65 | curb, kerb, curb stone, edge stone |
-| low_vegetation | 3 | low vegetation, grass, shrubs, bushes |
-| tree | 5 | tree, tall vegetation, tree canopy, foliage |
-| building | 6 | building, house, facade, exterior wall |
-| vehicle | 66 | vehicle, car, van, truck |
-| construction_machinery | 67 | construction machinery, excavator, digger, bulldozer, loader |
-| utility_pole | 68 | utility pole, light pole, streetlight, lamp post |
-| traffic_sign | 69 | traffic sign, road sign, signpost |
-| fence | 70 | fence, barrier, railing, gate |
-| power_line | 14 | overhead power line, utility wire, cable |
-| scaffolding | 71 | scaffolding, construction scaffold |
-| construction_material | 72 | construction container, site container, building material, construction material |
-| water | 9 | water, pond, stream, puddle |
+| Unclassified | 1 | Undecided or rejected point |
+| ground | 2 | Ground, terrain, soil, bare earth |
+| low_vegetation | 3 | Grass, shrubs and low vegetation |
+| tree | 5 | High vegetation and tree clusters |
+| building | 6 | Building, house, facade or exterior wall |
+| water | 9 | Pond, stream, puddle or water surface |
+| road | 11 | Vehicle carriageway and asphalt road |
+| power_line | 14 | Overhead wire, cable or conductor |
+| construction_machinery | 67 | Excavator, loader, bulldozer or similar |
+| sidewalk | 73 | Pedestrian sidewalk or paved footway |
+| curb | 74 | Curb, kerb or edge stone |
+| construction_material | 76 | Container or construction material |
+| fence | 77 | Fence, barrier, railing or gate |
+| traffic_sign | 81 | Road sign or signpost |
+| utility_pole | 84 | Utility pole, streetlight or lamp post |
+| vehicle | 91 | Vehicle, car, van or truck |
+| scaffolding | 110 | Construction scaffold or steel structure |
 
-Append a block to `config/classes.yml` to add a class. A class without an explicit code gets
-the next free number from 64. Appending one to the default list gives **73**. Existing explicit
-codes are reserved before automatic allocation. Do not reorder existing classes after
-classified data exists. Freeze codes explicitly before inserting/reordering existing entries.
-LAS 1.4 lookup descriptions are limited to 15 bytes; the JSON and CSV contain full names.
+The default codes follow the usable Cyclone/ASPRS mapping in
+[`config/classes.yml`](config/classes.yml). Metashape displays the imported point cloud with
+photo RGB colors by default; colors in the class legend are reference colors for exports and
+classification views. New custom classes begin at code 120. Keep every project-import code below
+128 and assign codes explicitly before changing an established class list.
 
 ## Tuning
 
-| Aim | Settings to consider |
-|---|---|
-| More coverage | Reduce `voting.min_views` from 3 to 2; cautiously lower `sam.background_threshold`. |
-| Fewer incorrect decisions | Raise `voting.min_share`, `voting.min_views`, or `sam.background_threshold`. |
-| Power lines, fences, curbs | Keep `sam.image_scale: 1`, raise `cache.scale` toward 1, reduce voxel size and z-buffer splat radius. |
-| Lower GPU memory use | Reduce `sam.prompt_batch_size` to 1 and `voting.batch_points`; SAM tiles remain 1008 pixels. Close other GPU applications. |
-| Lower vote memory use | Reduce `voting.max_ram_gb` to spill votes to disk; increase voxel size to reduce representatives. |
-| Smooth uncertain areas | Enable kNN smoothing. High-share and unclassified points remain unchanged. |
+Use the **Metashape start window** for normal production runs. The selected settings apply only
+to that run. Use `config/default.yml` when you need a permanent default or the PowerShell workflow.
 
-Large splats or depth tolerances can erase thin objects or admit occluded surfaces. Small
-splats can leave holes. Geometry validation thresholds are error gates, not coverage controls;
-investigate a failed gate before changing them. Optional `depth_maps` requires retained maps
-and uses their own calibration. Incidence weighting requires valid exported LAS normal vectors;
-it fails clearly when unavailable instead of inventing normals.
+| Aim | Start-window choice or setting |
+|---|---|
+| Shortest reliable run | **Schnell**, lower image resolution and 10% tile overlap. |
+| Better small-object boundaries | **Hohe Genauigkeit**, 100% resolution and greater tile overlap. |
+| Use the GPU efficiently | Click **Auto: maximal sicher**; it recalculates from current free VRAM. |
+| Lower GPU memory use | Select a lower prompt batch; close other GPU applications. |
+| More conservative point acceptance | Increase image observations per point or raise `voting.min_share`. |
+| Correct uncertain small spots | Enable kNN smoothing only after checking that it does not soften edges. |
+| Improve ground/road support | Keep Metashape ground assistance and geometric postprocessing enabled. |
+| Improve vegetation height classes | Keep DTM vegetation splitting enabled; high vegetation starts at 50 cm,
+  with a 45–55 cm SAM-preserving transition band. |
+
+The estimate is a planning value, not a guarantee: it learns from compatible earlier logs and
+recalculates exact tile counts from the active images. It becomes more accurate after successful
+runs with the same project, GPU and model. Large splats or depth tolerances can erase thin objects
+or admit occluded surfaces. Geometry validation thresholds are error gates, not coverage controls.
 
 ## Troubleshooting
 
 | Problem | What to do |
 |---|---|
+| No start window appears | Run `install.bat` again, then start `start_in_metashape.py` through **Tools → Run Script**. |
+| `No module named 'msam3'` | The venv package is missing or outdated; run `install.bat` from the repository. |
 | Missing `sam3.pt` | Follow the model-download section; verify `paths.model`. |
-| Project locked | Save and close it in Metashape. Do not bypass or delete a live lock. |
-| No active license | Ensure a valid Professional license is available to the headless process. Closing the project alone may leave a floating seat occupied by the GUI; close the application if needed. |
+| Project locked | For PowerShell, save and close Metashape. For the start-window workflow, keep Metashape open. |
+| No active Metashape license | Ensure a valid Professional license is available before starting. |
+| Out of VRAM | Close GPU-heavy applications, click **Auto: maximal sicher**, or select a lower GPU prompt batch. |
+| PC becomes slow during classification | This is expected with a high auto batch. Choose a lower batch if you need to work on the PC. |
 | Reprojection gate fails | Check rolling shutter, frame calibration and unsupported film corrections; enable `debug.save_overlays`. |
 | Tie-to-dense gate fails | Check CRS, scale, cloud cropping and whether tie points and dense cloud cover the same area. |
 | Image not found | Fix the image paths or configure `image_path_remap`. |
-| Out of VRAM | Close GPU-heavy applications, reduce point batch size, use the recommended GPU. |
 | bf16 unsupported | Set `gpu.dtype: float16`. |
 | CUDA unavailable after installation | Update the NVIDIA driver; rerun the installer, which explicitly installs `+cu128` wheels. |
 | SAM import error | Rerun the installer; inspect its first error. The pinned upstream import needs Triton, psutil and setuptools below 81. |
 | Exit 0 but no marker | The stage failed despite the exit code; inspect the captured Metashape log and license status. |
-| Stale stage 1 | Run `stage1` or `run` again with the same chunk selection and work directory. |
-| Unsupported custom code | Keep project-import codes below 128. The stage-2 LAS remains available. |
+| Unsupported class code | Keep project-import codes below 128. The stage-2 LAS remains available. |
 
 ## Limitations and verification
 
