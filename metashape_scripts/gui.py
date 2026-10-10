@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import traceback
 import uuid
@@ -42,6 +43,34 @@ def launch_progress(session):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def launch_options(session):
+    """Show the independent launch window and wait for its explicit Start choice."""
+    options_python = ROOT / ".venv/Scripts/pythonw.exe"
+    if not options_python.is_file():
+        options_python = ROOT / ".venv/Scripts/python.exe"
+    process = subprocess.Popen(
+        [str(options_python), "-m", "msam3.gui_options", "--session", str(session)],
+        cwd=str(ROOT),
+        env=worker_environment(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return process.wait() == 0 and (session / "options.json").is_file()
+
+
+def enabled_image_count(document):
+    """Count the camera images that the default all-chunks workflow will process."""
+    return sum(
+        1
+        for chunk in document.chunks
+        if getattr(chunk, "enabled", True)
+        for camera in chunk.cameras
+        if getattr(camera, "enabled", True) and getattr(camera, "photo", None) is not None
     )
 
 
@@ -159,7 +188,17 @@ def start():
         document.save()
         session = ROOT / "work" / "gui-sessions" / uuid.uuid4().hex
         session.mkdir(parents=True)
-        write_json(session / "session.json", {"project": str(Path(document.path).resolve())})
+        write_json(
+            session / "session.json",
+            {
+                "project": str(Path(document.path).resolve()),
+                "image_count": enabled_image_count(document),
+            },
+        )
+        if not launch_options(session):
+            print("SAM 3: Start im Einstellungsfenster abgebrochen.")
+            shutil.rmtree(session, ignore_errors=True)
+            return
         write_json(session / "launcher_status.json", {"phase": "prepare"})
         launch_progress(session)
 

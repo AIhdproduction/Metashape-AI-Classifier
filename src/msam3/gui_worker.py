@@ -18,9 +18,31 @@ from msam3.segmentation.sam3_backend import require_checkpoint
 LOG = logging.getLogger(__name__)
 
 
+def _merge_settings(base: dict, override: dict) -> dict:
+    """Merge the launch-window choices without persisting them into default.yml."""
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge_settings(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def settings_for_session(session: Path) -> Settings:
+    settings = load_settings()
+    choices = session / "options.json"
+    if not choices.is_file():
+        return settings
+    payload = json.loads(choices.read_text(encoding="utf-8"))
+    override = payload.get("settings_override", {})
+    if not isinstance(override, dict):
+        raise ValueError("Die Startfenster-Einstellungen sind ungueltig.")
+    return Settings.model_validate(_merge_settings(settings.model_dump(mode="json"), override))
+
+
 def prepare(session: Path) -> None:
     project = Path(json.loads((session / "session.json").read_text(encoding="utf-8"))["project"])
-    settings = load_settings()
+    settings = settings_for_session(session)
     classes = load_classes()
     require_checkpoint(settings.paths.model)
     work = job_directory(project, settings)
