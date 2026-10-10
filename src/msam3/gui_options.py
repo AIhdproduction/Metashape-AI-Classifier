@@ -43,14 +43,50 @@ def historical_seconds_per_image(sessions_root: Path) -> float:
 
 
 def estimate_seconds(
-    image_count: int, image_scale: float, tile_overlap: float, min_views: int, baseline: float
+    image_count: int,
+    image_scale: float,
+    tile_overlap: float,
+    min_views: int,
+    baseline: float,
+    prompt_batch_size: int = 8,
 ) -> float:
     """Give a deliberately conservative wall-clock estimate, including Metashape I/O."""
     resolution_factor = (image_scale / 0.75) ** 2
     overlap_factor = ((1 - 0.20) / (1 - tile_overlap)) ** 2
     view_factor = 1 + max(0, min_views - 1) * 0.08
-    classification = image_count * baseline * resolution_factor * overlap_factor * view_factor
+    batch_factor = (8 / prompt_batch_size) ** 0.12
+    classification = (
+        image_count * baseline * resolution_factor * overlap_factor * view_factor * batch_factor
+    )
     return classification + max(180, min(1200, image_count * 2.0))
+
+
+def gpu_memory_gib() -> tuple[float, float] | None:
+    """Return currently free and total CUDA memory without loading the SAM model."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, total_bytes = torch.cuda.mem_get_info(torch.cuda.current_device())
+    except (ImportError, RuntimeError):
+        return None
+    return free_bytes / 1024**3, total_bytes / 1024**3
+
+
+def maximum_safe_batch(
+    free_gib: float, total_gib: float, image_scale: float, tile_overlap: float
+) -> int | None:
+    """Select the largest batch up to 16 while reserving room for SAM and Windows."""
+    workload = (image_scale / 0.75) ** 2 * (1 + 1.5 * abs(tile_overlap - 0.20))
+    windows_reserve = max(2.0, total_gib * 0.12)
+    sam_model_reserve = 10.5 + 1.2 * workload
+    prompt_reserve = 0.55 * workload
+    available = free_gib - windows_reserve
+    for batch in (16, 12, 8, 4):
+        if sam_model_reserve + batch * prompt_reserve <= available:
+            return batch
+    return None
 
 
 def format_duration(seconds: float) -> str:
@@ -111,6 +147,7 @@ class OptionsWindow:
         self.road = BooleanVar(value=True)
         self.smoothing = BooleanVar(value=False)
         self.estimate = StringVar()
+        self.auto_batch_notice = StringVar()
         self._build()
         self._refresh_estimate()
 
@@ -175,6 +212,15 @@ class OptionsWindow:
         )
         batch.grid(row=4, column=1, padx=(18, 0), pady=(8, 0), sticky="ew")
         batch.bind("<<ComboboxSelected>>", self._changed)
+        ttk.Label(quality, text="Automatische GPU-Wahl").grid(
+            row=5, column=0, pady=(10, 0), sticky="w"
+        )
+        ttk.Button(quality, text="Auto: maximal sicher", command=self._auto_batch).grid(
+            row=5, column=1, padx=(18, 0), pady=(10, 0), sticky="ew"
+        )
+        ttk.Label(quality, textvariable=self.auto_batch_notice, wraplength=520).grid(
+            row=6, column=0, columnspan=2, pady=(6, 0), sticky="w"
+        )
 
         filters = ttk.LabelFrame(frame, text="Hilfe und Nachfilter", padding=12)
         filters.grid(row=3, column=0, columnspan=2, pady=(12, 0), sticky="ew")
@@ -232,11 +278,41 @@ class OptionsWindow:
         )
 
     def _refresh_estimate(self):
-        image_scale, overlap, _, min_views = self._values()
+        image_scale, overlap, prompt_batch_size, min_views = self._values()
         estimate = estimate_seconds(
-            self.image_count, image_scale, overlap, min_views, self.baseline
+            self.image_count,
+            image_scale,
+            overlap,
+            min_views,
+            self.baseline,
+            prompt_batch_size,
         )
         self.estimate.set(f"Geschätzte Laufzeit: {format_duration(estimate)}")
+
+    def _auto_batch(self):
+        image_scale, overlap, _, _ = self._values()
+        memory = gpu_memory_gib()
+        if memory is None:
+            self.auto_batch_notice.set(
+                "Keine CUDA-Grafikkarte erkannt. Der bisher gewählte Batch bleibt erhalten."
+            )
+            return
+        free_gib, total_gib = memory
+        batch = maximum_safe_batch(free_gib, total_gib, image_scale, overlap)
+        if batch is None:
+            self.auto_batch_notice.set(
+                f"Nur {free_gib:.1f} von {total_gib:.1f} GiB VRAM frei: "
+                "kein sicherer Batch gefunden. Bitte GPU-Anwendungen schließen."
+            )
+            return
+        self.prompt_batch_size.set(batch)
+        self.profile.set("Benutzerdefiniert")
+        self.auto_batch_notice.set(
+            f"Auto-Batch {batch} gewählt ({free_gib:.1f}/{total_gib:.1f} GiB VRAM frei). "
+            "Die GPU wird stark ausgelastet; Metashape und der PC können "
+            "bis zum Ende träge reagieren."
+        )
+        self._refresh_estimate()
 
     def start(self):
         image_scale, overlap, prompt_batch_size, min_views = self._values()
@@ -246,7 +322,12 @@ class OptionsWindow:
                 "profile": self.profile.get(),
                 "estimated_seconds": round(
                     estimate_seconds(
-                        self.image_count, image_scale, overlap, min_views, self.baseline
+                        self.image_count,
+                        image_scale,
+                        overlap,
+                        min_views,
+                        self.baseline,
+                        prompt_batch_size,
                     )
                 ),
                 "settings_override": settings_override(
