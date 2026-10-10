@@ -143,34 +143,18 @@ def select_classified_asset(document, result, display_mode):
 
 
 def restore_source_point_clouds(document):
-    """Use the photo cloud as input when the GUI currently displays an older SAM3 result."""
+    """Select the original photo cloud even when Metashape has no active cloud selected."""
     for chunk in document.chunks:
-        selected = chunk.point_cloud
-        if selected is None or "msam3.import_id" not in selected.meta.keys():
+        selected = getattr(chunk, "point_cloud", None)
+        source = stage1_export.source_point_cloud(chunk)
+        if source is None:
+            print("SAM 3: Keine verwendbare Fotopunktwolke in " + chunk.label + " gefunden.")
             continue
-        source_key = (
-            selected.meta["msam3.source_point_cloud_key"]
-            if "msam3.source_point_cloud_key" in selected.meta.keys()
-            else None
-        )
-        source = next(
-            (asset for asset in chunk.point_clouds if str(asset.key) == str(source_key)), None
-        )
-        if source is None:
-            candidates = [
-                asset
-                for asset in chunk.point_clouds
-                if asset.key != selected.key and "msam3.import_id" not in asset.meta.keys()
-            ]
-            source = candidates[0] if len(candidates) == 1 else None
-        if source is None:
+        if selected is not source:
+            chunk.point_cloud = source
             print(
-                "SAM 3: Die urspruengliche Punktwolke konnte nicht eindeutig bestimmt werden; "
-                "die aktuelle Auswahl bleibt erhalten."
+                "SAM 3: Urspruengliche Fotopunktwolke wird als Eingabe verwendet: " + source.label
             )
-            continue
-        chunk.point_cloud = source
-        print("SAM 3: Urspruengliche Fotopunktwolke wird als Eingabe verwendet: " + source.label)
 
 
 def start():

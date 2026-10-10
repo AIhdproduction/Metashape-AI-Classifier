@@ -52,6 +52,40 @@ def point_class_counts(point_cloud):
     return {str(int(code)): int(count) for code, count in point_cloud.point_count_by_class.items()}
 
 
+def is_msam3_import(point_cloud):
+    meta = getattr(point_cloud, "meta", {})
+    return "msam3.import_id" in meta.keys()
+
+
+def source_point_cloud(chunk):
+    """Return the original cloud even when Metashape has no active cloud selected."""
+    active = getattr(chunk, "point_cloud", None)
+    point_clouds = list(getattr(chunk, "point_clouds", []))
+    if active is not None and not is_msam3_import(active):
+        return active
+    if active is not None:
+        source_key = (
+            active.meta["msam3.source_point_cloud_key"]
+            if "msam3.source_point_cloud_key" in active.meta.keys()
+            else None
+        )
+        matched = next(
+            (
+                point_cloud
+                for point_cloud in point_clouds
+                if str(point_cloud.key) == str(source_key)
+            ),
+            None,
+        )
+        if matched is not None and not is_msam3_import(matched):
+            return matched
+    candidates = [point_cloud for point_cloud in point_clouds if not is_msam3_import(point_cloud)]
+    if not candidates:
+        return None
+    # Prefer the complete source if a project retains multiple non-SAM cloud assets.
+    return max(candidates, key=lambda point_cloud: getattr(point_cloud, "point_count", 0))
+
+
 def classify_ground_support(chunk, job, progress=None):
     """Classify only unclassified source points and expose ground as a SAM hint."""
     config = job["settings"]["ground_assist"]
@@ -174,11 +208,19 @@ def export_chunk(chunk, job, progress=None):
                     camera.label,
                 )
     LOG.info("Chunk %s: %d frame cameras; skipped %s", chunk.label, len(cameras), dict(skipped))
-    if not cameras or chunk.point_cloud is None:
-        LOG.warning(
-            "Skipping chunk %s: aligned frame cameras and a dense cloud are required", chunk.label
-        )
+    if not cameras:
+        LOG.warning("Skipping chunk %s: no aligned frame cameras", chunk.label)
         return None
+    point_cloud = source_point_cloud(chunk)
+    if point_cloud is None:
+        raise RuntimeError(
+            "Chunk "
+            + chunk.label
+            + " has no usable source point cloud. Build or enable the dense point cloud first."
+        )
+    if chunk.point_cloud is not point_cloud:
+        chunk.point_cloud = point_cloud
+        LOG.info("Chunk %s: selected source point cloud %s", chunk.label, point_cloud.label)
     if chunk.crs is None:
         raise RuntimeError("Chunk CRS is missing: " + chunk.label)
     ground_assist = classify_ground_support(chunk, job, progress)

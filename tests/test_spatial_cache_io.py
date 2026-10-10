@@ -83,6 +83,19 @@ def test_metashape_ground_assist_only_reclassifies_created_and_unclassified(tmp_
     assert result["ground_after"] == 15
     assert result["ground_added"] == 12
 
+    class Asset:
+        def __init__(self, label, count, meta=None):
+            self.label, self.point_count, self.meta = label, count, meta or {}
+
+    original = Asset("Original photo cloud", 100)
+    old_result = Asset("SAM3 classified", 100, {"msam3.import_id": "prior"})
+
+    class CloudSelection:
+        point_cloud = None
+        point_clouds = [old_result, original]
+
+    assert stage1.source_point_cloud(CloudSelection()) is original
+
     project = tmp_path / "project.psx"
     project.write_bytes(b"project")
     settings = Settings()
@@ -157,6 +170,9 @@ def test_gui_restores_photo_cloud_before_a_second_run(monkeypatch):
     class Document:
         chunks = [Chunk()]
 
+    gui.restore_source_point_clouds(Document())
+    assert Document.chunks[0].point_cloud is photo
+    Document.chunks[0].point_cloud = None
     gui.restore_source_point_clouds(Document())
     assert Document.chunks[0].point_cloud is photo
 
