@@ -76,6 +76,26 @@ def test_postprocess_removes_isolated_points_fills_road_holes_and_repairs_roofs(
     assert (tmp_path / "post_sam_filter" / "postprocess_report.json").is_file()
 
 
+def test_postprocess_fills_only_a_strongly_supported_unknown_edge(tmp_path):
+    points = np.array(
+        [[x, y, 0.0] for x in (-0.1, 0.0, 0.1) for y in (-0.1, 0.0, 0.1)],
+        dtype=np.float32,
+    )
+    labels = np.array([2, 2, 2, 2, 1, 2, 2, 2, 2], dtype=np.uint8)
+    shares = np.full(len(points), 0.99, dtype=np.float32)
+    shares[4] = 0.0
+    config = settings()
+    # Disable the ordinary low-confidence hole repair: this verifies the dedicated
+    # edge pass, which may only fill a point with overwhelming local support.
+    config.class_rules["ground"].fill_neighbors = 9
+    config.unknown_fill.min_same_neighbors = 5
+    config.unknown_fill.min_share = 0.75
+
+    filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
+
+    assert filtered[4] == 2
+
+
 def test_postprocess_rejects_vertical_road_surfaces(tmp_path):
     points = np.array(
         [[2.0, x, z] for x in (-0.1, 0.0, 0.1) for z in (-0.1, 0.0, 0.1)], dtype=np.float32
@@ -155,7 +175,7 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
 
     filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
 
-    assert filtered[-4] == 3  # Mixed cluster: 20 cm is low vegetation.
+    assert filtered[-4] == 3  # Flat grass 3 m from the tree stays low despite its SAM tree label.
     assert filtered[-3] == 5  # Mixed cluster: 80 cm is high vegetation.
     assert filtered[-2] == 5  # Tree trunk stays high when its connected crown reaches 1.5 m.
     assert filtered[-1] == 5

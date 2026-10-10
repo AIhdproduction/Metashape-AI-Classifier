@@ -114,8 +114,14 @@ postprocess:
     max_dem_residual_m: 0.15
     high_vegetation_min_height_m: 0.5 # High vegetation at 50 cm above the DTM.
     threshold_tolerance: 0.1 # Keep SAM's class inside the 45–55 cm transition band.
-    cluster_cell_size_m: 0.5 # Apply the DTM split only to connected mixed vegetation clusters.
-    tree_cluster_min_height_m: 1.5 # A mixed cluster with a 1.5-m crown is retained entirely as high vegetation.
+    cluster_cell_size_m: 0.5 # Vegetation connectivity grid in metres.
+    tree_cluster_min_height_m: 1.5 # A high SAM tree point needs a supported crown at least this high.
+    tree_cluster_radius_m: 2.5 # Only nearby trunk and crown points inherit the high-vegetation tree class.
+    tree_seed_min_sam_share: 0.65 # Strong SAM tree evidence is required before the local tree-cluster rule applies.
+  unknown_fill:
+    enabled: true # Extend a class only into immediately adjacent unclassified edge points.
+    min_same_neighbors: 5
+    min_share: 0.75 # At least 75% of local neighbours must agree on one class.
   road:
     enabled: true
     road_class: "road"

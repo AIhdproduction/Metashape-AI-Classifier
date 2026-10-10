@@ -194,6 +194,16 @@ class VegetationPostprocessConfig(StrictModel):
     threshold_tolerance: Probability = 0.1
     cluster_cell_size_m: Positive = 0.5
     tree_cluster_min_height_m: Positive = 1.5
+    tree_cluster_radius_m: Positive = 2.5
+    tree_seed_min_sam_share: Probability = 0.65
+
+
+class UnknownFillConfig(StrictModel):
+    """Conservatively extend a class into immediately adjacent unclassified points."""
+
+    enabled: bool = True
+    min_same_neighbors: Annotated[int, Field(ge=1, le=64)] = 5
+    min_share: Probability = 0.75
 
 
 class RoadPostprocessConfig(StrictModel):
@@ -222,6 +232,7 @@ class PostprocessConfig(StrictModel):
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
     vegetation: VegetationPostprocessConfig = Field(default_factory=VegetationPostprocessConfig)
+    unknown_fill: UnknownFillConfig = Field(default_factory=UnknownFillConfig)
     road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)
 
 

@@ -4,7 +4,7 @@ custom_code_start: 120 # Cyclone's documented Custom range, still supported by M
 classes:
   - name: ground
     code: 2
-    prompts: [ground, terrain, soil, bare earth]
+    prompts: [ground, terrain, soil, bare earth, stone, stones, gravel, boulder]
     color: "#663300" # Cyclone 3DR: Ground (class 2).
   - name: road
     code: 11

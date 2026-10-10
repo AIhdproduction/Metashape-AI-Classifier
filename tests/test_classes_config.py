@@ -25,6 +25,8 @@ def test_default_codes_and_append():
         "construction_material": 76,
         "water": 9,
     }
+    ground = next(item for item in classes.classes if item.name == "ground")
+    assert {"stone", "stones", "gravel", "boulder"}.issubset(ground.prompts)
     data = classes.model_dump()
     data["classes"].append({"name": "rock", "prompts": ["rock"]})
     assert Classes.model_validate(data).classes[-1].code == 120

@@ -127,6 +127,45 @@ def _fill_small_holes(tree, points, labels, shares, rules, config, batch_size, r
     return filled
 
 
+def _fill_unknown_edges(tree, points, labels, classes, rules, config, batch_size, road_code):
+    """Extend a well-supported local class into nearby unclassified edge points only."""
+    unknown_config = config.unknown_fill
+    if not unknown_config.enabled or not rules:
+        return Counter()
+    snapshot = labels.copy()
+    candidates = np.flatnonzero(snapshot == classes.unknown_code)
+    filled = Counter()
+    for selected, distances, indices in _neighbours(
+        tree,
+        points,
+        candidates,
+        config.neighbors,
+        config.neighborhood_radius_m,
+        batch_size,
+    ):
+        valid = (indices < len(labels)) & np.isfinite(distances)
+        safe = np.minimum(indices, len(labels) - 1)
+        neighbour_labels = snapshot[safe]
+        valid_count = valid.sum(axis=1)
+        proposal = np.full(len(selected), classes.unknown_code, dtype=np.uint8)
+        best_support = np.zeros(len(selected), dtype=np.intp)
+        for code in rules:
+            support = np.sum(valid & (neighbour_labels == code), axis=1)
+            better = support > best_support
+            proposal[better] = code
+            best_support[better] = support[better]
+        accepted = best_support >= unknown_config.min_same_neighbors
+        accepted &= best_support >= np.ceil(valid_count * unknown_config.min_share)
+        if road_code is not None and np.any(accepted & (proposal == road_code)):
+            road_positions = np.flatnonzero(accepted & (proposal == road_code))
+            slopes = _slopes(tree, points, selected[road_positions], config, batch_size)
+            accepted[road_positions] &= slopes <= config.road.max_slope_degrees
+        for code in np.unique(proposal[accepted]):
+            filled[int(code)] += int((proposal[accepted] == code).sum())
+        labels[selected[accepted]] = proposal[accepted]
+    return filled
+
+
 def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
     if not config.building.enabled:
         return 0
@@ -350,7 +389,7 @@ def _sample_dem_heights(points, candidate_ids, nodes, config, batch_size):
     return heights, supported_surface
 
 
-def _split_vegetation_height(points, labels, classes, config, batch_size):
+def _split_vegetation_height(points, labels, shares, classes, config, batch_size):
     """Split mixed vegetation with trusted terrain, preserving connected tree crowns."""
     vegetation = config.vegetation
     available = {item.name for item in classes.classes}
@@ -401,7 +440,7 @@ def _split_vegetation_height(points, labels, classes, config, batch_size):
     ):
         return empty
 
-    components, mixed_mask, component_has_high = _vegetation_components(
+    _, mixed_mask, _ = _vegetation_components(
         points, snapshot, candidates, low_code, high_code, vegetation.cluster_cell_size_m
     )
     heights, valid_surface = _sample_dem_heights(
@@ -418,21 +457,31 @@ def _split_vegetation_height(points, labels, classes, config, batch_size):
         valid_surface[accepted_missing] = True
         fallback_points_used = int(len(accepted_missing))
 
-    component_tall = np.zeros(len(component_has_high), dtype=bool)
     valid_heights = valid_surface & np.isfinite(heights)
-    np.logical_or.at(
-        component_tall,
-        components[valid_heights],
-        heights[valid_heights] >= vegetation.tree_cluster_min_height_m,
+    tree_seed = (
+        (snapshot[candidates] == high_code)
+        & valid_heights
+        & (shares[candidates] >= vegetation.tree_seed_min_sam_share)
+        & (heights >= vegetation.tree_cluster_min_height_m)
     )
-    tree_cluster_mask = component_has_high[components] & component_tall[components]
+    tree_cluster_mask = np.zeros(len(candidates), dtype=bool)
+    if np.any(tree_seed):
+        tree_seed_tree = cKDTree(points[candidates[tree_seed], :2])
+        nearest, _ = tree_seed_tree.query(
+            points[candidates, :2],
+            k=1,
+            distance_upper_bound=vegetation.tree_cluster_radius_m,
+            workers=-1,
+        )
+        tree_cluster_mask = np.isfinite(nearest)
     tolerance = vegetation.high_vegetation_min_height_m * vegetation.threshold_tolerance
     proposed = snapshot[candidates].copy()
-    regular = mixed_mask & valid_surface & ~tree_cluster_mask
+    regular = valid_surface & ~tree_cluster_mask
+    # Flat vegetation is reliably low. A distant tree can no longer turn an entire grass
+    # component into class 5 merely because the two touch in the XY connectivity grid.
     proposed[regular & (heights < vegetation.high_vegetation_min_height_m - tolerance)] = low_code
     proposed[regular & (heights >= vegetation.high_vegetation_min_height_m + tolerance)] = high_code
-    # A component which SAM already identified as a tree and whose crown is high enough
-    # stays high as a whole. This retains trunks and lower crown points in class 5.
+    # Only SAM-confident, DTM-supported trees pass this local radius to their trunk and crown.
     proposed[tree_cluster_mask] = high_code
     replace = labels[candidates] != proposed
     changed = Counter(int(code) for code in proposed[replace])
@@ -544,7 +593,9 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     ground_height_rejected = _reject_ground_height_outliers(
         points, labels, classes, config, batch_size
     )
-    vegetation_height = _split_vegetation_height(points, labels, classes, config, batch_size)
+    vegetation_height = _split_vegetation_height(
+        points, labels, shares, classes, config, batch_size
+    )
     removed = _remove_isolated(
         tree, points, labels, shares, classes.unknown_code, rules, config, batch_size
     )
@@ -553,6 +604,9 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     )
     road_surface = _repair_road_surface(points, labels, classes, config, batch_size, road_code)
     filled = _fill_small_holes(tree, points, labels, shares, rules, config, batch_size, road_code)
+    unknown_edges = _fill_unknown_edges(
+        tree, points, labels, classes, rules, config, batch_size, road_code
+    )
     output = Path(directory) / config.output_subdir
     output.mkdir(parents=True, exist_ok=True)
     atomic_json(
@@ -564,6 +618,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "road_slope_removed": road_rejected,
             "road_surface_to_road": road_surface,
             "holes_filled": dict(sorted(filled.items())),
+            "unknown_edges_filled": dict(sorted(unknown_edges.items())),
             "flat_roof_ground_to_building": roofs,
             "ground_height_to_unknown": ground_height_rejected,
             "vegetation_dem": vegetation_height,
