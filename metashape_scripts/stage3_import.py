@@ -94,6 +94,9 @@ def main(job, document=None, progress=None):
                 raise RuntimeError("Expected exactly one new point-cloud asset after import")
             asset = added[0]
             asset.meta["msam3.import_id"] = entry["import_id"]
+        # The GUI selects this asset for display. Retain the exact source so a later run
+        # cannot accidentally classify a prior SAM3 result instead of the photo cloud.
+        asset.meta["msam3.source_point_cloud_key"] = str(original.key)
         actual = {int(k): int(v) for k, v in asset.point_count_by_class.items() if v}
         if actual != expected or asset.point_count != sum(expected.values()):
             LOG.error("Class preservation failure: expected %s, imported %s", expected, actual)

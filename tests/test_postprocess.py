@@ -1,7 +1,8 @@
 import numpy as np
+from scipy.spatial import cKDTree
 
 from msam3.config import Classes, PostprocessConfig
-from msam3.pointcloud.postprocess import apply_postprocess
+from msam3.pointcloud.postprocess import _restrict_road_slope, apply_postprocess
 
 
 def classes():
@@ -86,6 +87,19 @@ def test_postprocess_rejects_vertical_road_surfaces(tmp_path):
     )
 
     assert np.all(filtered == 1)
+
+
+def test_sparse_road_point_is_not_rejected_without_a_plane():
+    points = np.array([[0.0, 0.0, 0.0]], dtype=np.float32)
+    labels = np.array([11], dtype=np.uint8)
+
+    rejected, road = _restrict_road_slope(
+        cKDTree(points), points, labels, classes(), settings(), batch_size=32
+    )
+
+    assert road == 11
+    assert rejected == 0
+    assert labels[0] == 11
 
 
 def test_postprocess_replaces_vegetation_enclosed_by_a_flat_road(tmp_path):

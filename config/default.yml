@@ -86,6 +86,7 @@ postprocess:
     min_surface_coverage_sectors: 6 # Six of eight directions must contain road support; roadside grass is retained.
     max_surface_offset_m: 0.08 # Candidate must lie on the road plane, in metres.
     surface_replace_classes: [low_vegetation] # Geometry overrides SAM only for this likely false road class.
+    fill_unknown_surface: true # Restore unclassified points only inside a fully supported road plane.
 debug:
   save_overlays: false # Draw validation projections on raw image pixels.
   overlay_every_n: 25 # Overlay every Nth exported camera.

@@ -36,7 +36,8 @@ def _support(labels, indices, distances, code):
 
 def _slopes(tree, points, ids, config: PostprocessConfig, batch_size):
     """Estimate local plane slope from metric k-nearest neighbours in degrees."""
-    slopes = np.full(len(ids), np.inf, dtype=np.float32)
+    # A sparse neighbourhood has no trustworthy plane. It must not be treated as vertical.
+    slopes = np.full(len(ids), np.nan, dtype=np.float32)
     cursor = 0
     for selected, distances, indices in _neighbours(
         tree,
@@ -171,7 +172,7 @@ def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
     if not len(ids):
         return 0, road
     slopes = _slopes(tree, points, ids, config, batch_size)
-    rejected = slopes > config.road.max_slope_degrees
+    rejected = np.isfinite(slopes) & (slopes > config.road.max_slope_degrees)
     labels[ids[rejected]] = classes.unknown_code
     return int(rejected.sum()), road
 
@@ -179,14 +180,16 @@ def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
 def _repair_road_surface(points, labels, classes, config, batch_size, road_code):
     """Replace configured false classes only inside a locally enclosing road plane."""
     road_config = config.road
-    if not road_config.enabled or road_code is None or not road_config.surface_replace_classes:
+    if not road_config.enabled or road_code is None:
         return 0
     names = [road_config.road_class, *road_config.surface_replace_classes]
     codes = _class_codes(classes, names)
-    targets = np.array(
-        [codes[name] for name in road_config.surface_replace_classes if codes[name] != road_code],
-        dtype=np.uint8,
-    )
+    target_codes = [
+        codes[name] for name in road_config.surface_replace_classes if codes[name] != road_code
+    ]
+    if road_config.fill_unknown_surface:
+        target_codes.append(classes.unknown_code)
+    targets = np.array(target_codes, dtype=np.uint8)
     road_ids = np.flatnonzero(labels == road_code)
     candidates = np.flatnonzero(np.isin(labels, targets))
     if not len(road_ids) or not len(candidates):

@@ -154,6 +154,7 @@ class RoadPostprocessConfig(StrictModel):
     min_surface_coverage_sectors: Annotated[int, Field(ge=1, le=8)] = 6
     max_surface_offset_m: Annotated[float, Field(ge=0)] = 0.08
     surface_replace_classes: list[str] = Field(default_factory=list)
+    fill_unknown_surface: bool = True
 
 
 class PostprocessConfig(StrictModel):

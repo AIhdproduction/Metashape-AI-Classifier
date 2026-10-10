@@ -71,6 +71,36 @@ def test_metashape_launcher_reloads_embedded_modules():
     assert result.returncode == 0, result.stderr
 
 
+def test_gui_restores_photo_cloud_before_a_second_run(monkeypatch):
+    monkeypatch.setitem(sys.modules, "Metashape", types.ModuleType("Metashape"))
+    script = Path(__file__).parents[1] / "metashape_scripts" / "gui.py"
+    spec = importlib.util.spec_from_file_location("test_metashape_gui", script)
+    assert spec and spec.loader
+    gui = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gui)
+
+    class Asset:
+        def __init__(self, key, label, meta):
+            self.key, self.label, self.meta = key, label, meta
+
+    photo = Asset(7, "Original photo cloud", {})
+    prior_result = Asset(
+        8,
+        "SAM3 classified",
+        {"msam3.import_id": "prior", "msam3.source_point_cloud_key": "7"},
+    )
+
+    class Chunk:
+        point_clouds = [photo, prior_result]
+        point_cloud = prior_result
+
+    class Document:
+        chunks = [Chunk()]
+
+    gui.restore_source_point_clouds(Document())
+    assert Document.chunks[0].point_cloud is photo
+
+
 def test_voxels_cross_batch_and_negative(tmp_path):
     points = np.array([[0, 0, 0], [0.01, 0, 0], [1, 0, 0], [-0.01, 0, 0], [1.01, 0, 0]])
     first = voxel_representatives(points, 0.03, tmp_path, batch_size=2, buckets=3)
