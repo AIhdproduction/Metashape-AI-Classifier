@@ -6,6 +6,10 @@ Classify a finished Metashape dense point cloud from its original photographs us
 The tool creates a **new point-cloud asset** in the same chunk, saves the project, and writes
 a classified LAS 1.4 file with class legends. The original point cloud is preserved.
 
+**License:** free for noncommercial education and research. Commercial use requires
+prior written permission from **AIhdproduction**. See [Licenses](#licenses) and the
+[German summary / deutsche Zusammenfassung](docs/licensing.de.md).
+
 ```powershell
 python -m msam3 run --project "D:\jobs\site\site.psx"
 ```
@@ -352,7 +356,30 @@ Git's commit author and GitHub authentication are separate. This checkout uses
 
 ## Licenses
 
-Repository: **All rights reserved**, AIhdproduction; the owner may replace the placeholder
-[LICENSE](LICENSE). SAM 3 code and weights are subject to **Meta's SAM License**; weights are
-not redistributed here. The method cites SegEarth-OV3. No SegEarth repository code was copied
-because its license could not be established. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Original project material is licensed under the custom
+**[AIhdproduction Education and Research License 1.0](LICENSE)**. AIhdproduction retains
+its rights in that material. This is source-available software with purpose restrictions.
+
+- **Free without an individual request:** noncommercial teaching, coursework, theses and
+  research, including modification and free redistribution under the license conditions.
+- **Prior written agreement required:** commercial use, paid client work, internal business
+  use, commercial R&D, products, hosted services and commercial exploitation of results.
+  Academic status alone does not exempt a commercial project.
+- **Your data and results:** AIhdproduction claims no ownership of them. Noncommercial
+  research results may be published and shared; the software license does not automatically
+  become the license of those results. Commercial generation or exploitation of results by
+  the licensee requires permission under the license.
+- **Requests:** contact AIhdproduction through the
+  [project issue tracker](https://github.com/AIhdproduction/metashape-sam3-classifier/issues).
+  Permission must be expressly granted in writing before the proposed use.
+
+The complete [LICENSE](LICENSE) controls; a [German explanation](docs/licensing.de.md)
+is available. Publications must acknowledge this project and SAM 3 as applicable.
+
+SAM 3 code and weights are separately subject to
+**[Meta's SAM License](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE)**.
+Weights are not redistributed here; upstream SAM 3 code is installed separately.
+Using only generated outputs does not exempt the person running SAM 3 from Meta's terms.
+Metashape requires its own license. The method cites SegEarth-OV3; no SegEarth repository
+code was copied because its license could not be established during implementation.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

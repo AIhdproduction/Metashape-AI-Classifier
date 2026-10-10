@@ -1,5 +1,8 @@
 # Third-party notices
 
+The project's [LICENSE](LICENSE) covers original AIhdproduction material only. It does not
+replace any third-party license or grant ownership of third-party code, models or methods.
+
 ## SAM 3
 
 Official implementation: https://github.com/facebookresearch/sam3
@@ -12,6 +15,17 @@ https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6
 The checkpoint is not included or redistributed. Users must request access and accept the
 applicable terms at https://huggingface.co/facebook/sam3. Upstream package metadata contains
 an MIT classifier; the actual upstream LICENSE governs, not that metadata label.
+
+The installer fetches SAM 3 code from the official upstream repository separately. Local
+inference is still use of SAM Materials under Meta's license, even when only classified
+point clouds, masks or other generated results are shared. Meta's section 1.b.ii requires
+acknowledging SAM Materials when publishing research results produced using them.
+
+Sharing generated results should be distinguished from distributing SAM code, model weights
+or derivatives of those materials. Section 1.b.i requires a copy of Meta's agreement when
+SAM Materials or their derivatives are distributed; a link alone does not satisfy that
+requirement. Anyone bundling those materials must handle those obligations separately.
+These notes do not grant rights in outputs or override Meta's applicable terms.
 
 ## SegEarth-OV3
 
