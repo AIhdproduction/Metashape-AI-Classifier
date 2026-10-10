@@ -99,6 +99,17 @@ postprocess:
     min_ground_neighbors: 8 # Sparse ground has no reliable local plane and is retained.
     max_plane_slope_degrees: 55 # Do not filter genuine steep terrain.
     max_offset_m: 0.15 # Points more than 15 cm above or below a supported ground plane become unclassified.
+  vegetation:
+    enabled: true
+    low_vegetation_class: "low_vegetation"
+    high_vegetation_class: "tree" # The existing tree class represents high vegetation.
+    terrain_classes: [ground, road, sidewalk]
+    horizontal_radius_m: 1.5
+    neighbors: 16
+    min_terrain_neighbors: 8
+    max_terrain_slope_degrees: 55
+    max_terrain_residual_m: 0.15
+    high_vegetation_min_height_m: 1.2 # At or above 1.20 m above local terrain: high vegetation.
   road:
     enabled: true
     road_class: "road"

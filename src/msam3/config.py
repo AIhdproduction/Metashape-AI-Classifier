@@ -175,6 +175,21 @@ class GroundPostprocessConfig(StrictModel):
     max_offset_m: Annotated[float, Field(gt=0)] = 0.15
 
 
+class VegetationPostprocessConfig(StrictModel):
+    """Split vegetation by its height above a locally supported terrain surface."""
+
+    enabled: bool = True
+    low_vegetation_class: str = "low_vegetation"
+    high_vegetation_class: str = "tree"
+    terrain_classes: list[str] = ["ground", "road", "sidewalk"]
+    horizontal_radius_m: Positive = 1.5
+    neighbors: Annotated[int, Field(ge=3, le=64)] = 16
+    min_terrain_neighbors: Annotated[int, Field(ge=3, le=64)] = 8
+    max_terrain_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 55.0
+    max_terrain_residual_m: Positive = 0.15
+    high_vegetation_min_height_m: Annotated[float, Field(ge=0)] = 1.2
+
+
 class RoadPostprocessConfig(StrictModel):
     enabled: bool = True
     road_class: str = "road"
@@ -200,6 +215,7 @@ class PostprocessConfig(StrictModel):
     class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
+    vegetation: VegetationPostprocessConfig = Field(default_factory=VegetationPostprocessConfig)
     road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)
 
 

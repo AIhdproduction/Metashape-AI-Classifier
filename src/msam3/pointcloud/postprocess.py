@@ -162,6 +162,16 @@ def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
     return repaired
 
 
+def _fit_height_planes(neighbour_xy, neighbour_z, valid):
+    """Return z=ax+by+c fits for one batch of valid local terrain neighbours."""
+    design = np.concatenate((neighbour_xy, np.ones((*neighbour_xy.shape[:2], 1))), axis=2)
+    weighted = design * valid[:, :, None]
+    matrix = np.einsum("bki,bkj->bij", weighted, weighted)
+    rhs = np.einsum("bki,bk->bi", weighted, neighbour_z * valid)
+    coefficients = np.einsum("bij,bj->bi", np.linalg.pinv(matrix), rhs)
+    return design, coefficients
+
+
 def _reject_ground_height_outliers(points, labels, classes, config, batch_size):
     """Remove ground labels that are vertically detached from a supported local plane."""
     ground_config = config.ground
@@ -203,23 +213,17 @@ def _reject_ground_height_outliers(points, labels, classes, config, batch_size):
         neighbour_z = neighbours[usable, :, 2]
         usable_valid = valid[usable]
 
-        # Fit height as z = ax + by + c. This deliberately refuses vertical planes:
-        # a vertically stacked artefact must not be able to validate itself as ground.
-        design = np.concatenate((neighbour_xy, np.ones((*neighbour_xy.shape[:2], 1))), axis=2)
-
-        def fit(valid_mask, design=design, neighbour_z=neighbour_z):
-            weighted = design * valid_mask[:, :, None]
-            matrix = np.einsum("bki,bkj->bij", weighted, weighted)
-            rhs = np.einsum("bki,bk->bi", weighted, neighbour_z * valid_mask)
-            return np.einsum("bij,bj->bi", np.linalg.pinv(matrix), rhs)
-
-        coefficients = fit(usable_valid)
+        # z=ax+by+c deliberately refuses vertical planes: a vertically stacked artefact
+        # must not be able to validate itself as ground.
+        design, coefficients = _fit_height_planes(neighbour_xy, neighbour_z, usable_valid)
         neighbour_residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
         inliers = usable_valid & (neighbour_residual <= ground_config.max_offset_m)
         inlier_count = inliers.sum(axis=1)
         can_refit = inlier_count >= ground_config.min_ground_neighbors
         if np.any(can_refit):
-            coefficients[can_refit] = fit(inliers)[can_refit]
+            coefficients[can_refit] = _fit_height_planes(neighbour_xy, neighbour_z, inliers)[1][
+                can_refit
+            ]
         candidate_design = np.column_stack(
             (points[selected_usable, :2], np.ones(len(selected_usable)))
         )
@@ -235,6 +239,77 @@ def _reject_ground_height_outliers(points, labels, classes, config, batch_size):
         labels[selected_usable[reject]] = classes.unknown_code
         rejected += int(reject.sum())
     return rejected
+
+
+def _split_vegetation_height(points, labels, classes, config, batch_size):
+    """Classify low/high vegetation from terrain-relative height without changing other classes."""
+    vegetation = config.vegetation
+    available = {item.name for item in classes.classes}
+    required = {vegetation.low_vegetation_class, vegetation.high_vegetation_class}
+    if not vegetation.enabled or not required.issubset(available):
+        return Counter()
+    terrain_names = [name for name in vegetation.terrain_classes if name in available]
+    if not terrain_names:
+        return Counter()
+    codes = _class_codes(
+        classes, [vegetation.low_vegetation_class, vegetation.high_vegetation_class, *terrain_names]
+    )
+    low_code = codes[vegetation.low_vegetation_class]
+    high_code = codes[vegetation.high_vegetation_class]
+    snapshot = labels.copy()
+    terrain_codes = np.array([codes[name] for name in terrain_names], dtype=np.uint8)
+    terrain_ids = np.flatnonzero(np.isin(snapshot, terrain_codes))
+    candidates = np.flatnonzero(np.isin(snapshot, [low_code, high_code]))
+    if len(terrain_ids) < vegetation.min_terrain_neighbors or not len(candidates):
+        return Counter()
+
+    terrain_tree = cKDTree(points[terrain_ids, :2])
+    neighbour_count = min(vegetation.neighbors, len(terrain_ids))
+    changed = Counter()
+    for start in range(0, len(candidates), batch_size):
+        selected = candidates[start : start + batch_size]
+        distances, indices = terrain_tree.query(
+            points[selected, :2],
+            k=neighbour_count,
+            distance_upper_bound=vegetation.horizontal_radius_m,
+            workers=-1,
+        )
+        distances = np.asarray(distances).reshape(len(selected), -1)
+        indices = np.asarray(indices).reshape(len(selected), -1)
+        valid = (indices < len(terrain_ids)) & np.isfinite(distances)
+        valid_count = valid.sum(axis=1)
+        usable = valid_count >= vegetation.min_terrain_neighbors
+        if not np.any(usable):
+            continue
+        safe = np.minimum(indices, len(terrain_ids) - 1)
+        neighbours = points[terrain_ids[safe]].astype(np.float64, copy=False)
+        selected_usable = selected[usable]
+        neighbour_xy = neighbours[usable, :, :2]
+        neighbour_z = neighbours[usable, :, 2]
+        usable_valid = valid[usable]
+        design, coefficients = _fit_height_planes(neighbour_xy, neighbour_z, usable_valid)
+        neighbour_residual = np.abs(neighbour_z - np.einsum("bki,bi->bk", design, coefficients))
+        inliers = usable_valid & (neighbour_residual <= vegetation.max_terrain_residual_m)
+        inlier_count = inliers.sum(axis=1)
+        supported = inlier_count >= vegetation.min_terrain_neighbors
+        if np.any(supported):
+            coefficients[supported] = _fit_height_planes(neighbour_xy, neighbour_z, inliers)[1][
+                supported
+            ]
+        candidate_design = np.column_stack(
+            (points[selected_usable, :2], np.ones(len(selected_usable)))
+        )
+        height = points[selected_usable, 2] - np.einsum("bi,bi->b", candidate_design, coefficients)
+        slopes = np.degrees(np.arctan(np.linalg.norm(coefficients[:, :2], axis=1)))
+        valid_surface = supported & (slopes <= vegetation.max_terrain_slope_degrees)
+        proposed = np.where(
+            height >= vegetation.high_vegetation_min_height_m, high_code, low_code
+        ).astype(np.uint8)
+        replace = valid_surface & (labels[selected_usable] != proposed)
+        for code in np.unique(proposed[replace]):
+            changed[int(code)] += int((proposed[replace] == code).sum())
+        labels[selected_usable[replace]] = proposed[replace]
+    return changed
 
 
 def _restrict_road_slope(tree, points, labels, classes, config, batch_size):
@@ -321,7 +396,7 @@ def _repair_road_surface(points, labels, classes, config, batch_size, road_code)
 
 
 def apply_postprocess(points, labels, shares, classes, config, directory, batch_size):
-    """Apply NPI outlier removal, ground, roof, and road geometry rules."""
+    """Apply NPI outlier removal plus ground, vegetation, roof, and road geometry rules."""
     labels = np.asarray(labels, dtype=np.uint8).copy()
     if not config.enabled or not len(labels):
         return labels
@@ -333,6 +408,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     ground_height_rejected = _reject_ground_height_outliers(
         points, labels, classes, config, batch_size
     )
+    vegetation_height = _split_vegetation_height(points, labels, classes, config, batch_size)
     removed = _remove_isolated(
         tree, points, labels, shares, classes.unknown_code, rules, config, batch_size
     )
@@ -354,6 +430,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "holes_filled": dict(sorted(filled.items())),
             "flat_roof_ground_to_building": roofs,
             "ground_height_to_unknown": ground_height_rejected,
+            "vegetation_height_reclassified": dict(sorted(vegetation_height.items())),
         },
     )
     return labels
