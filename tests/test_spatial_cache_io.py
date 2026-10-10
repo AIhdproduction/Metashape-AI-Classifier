@@ -41,11 +41,14 @@ def test_embedded_legend_writes_color_column(tmp_path, monkeypatch):
     )
 
     with (tmp_path / "class_legend.csv").open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream))
+        rows = list(csv.DictReader(stream, delimiter=";"))
     assert rows == [
         {"name": "Unclassified", "code": "1", "color": "#787878", "prompts": ""},
         {"name": "ground", "code": "2", "color": "#663300", "prompts": "ground"},
     ]
+    assert (tmp_path / "class_legend.csv").read_text(encoding="utf-8").splitlines()[
+        0
+    ] == "name;code;color;prompts"
 
 
 def test_metashape_ground_assist_only_reclassifies_created_and_unclassified(tmp_path, monkeypatch):

@@ -30,7 +30,9 @@ def write_legends(directory: Path, classes: Classes) -> None:
     rows = legend(classes)
     atomic_json(directory / "class_legend.json", rows)
     with (directory / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["name", "code", "color", "prompts"])
+        writer = csv.DictWriter(
+            stream, fieldnames=["name", "code", "color", "prompts"], delimiter=";"
+        )
         writer.writeheader()
         writer.writerows({**row, "prompts": " | ".join(row["prompts"])} for row in rows)
 

@@ -46,7 +46,10 @@ def prepare(session: Path) -> None:
     classes = load_classes()
     require_checkpoint(settings.paths.model)
     work = job_directory(project, settings)
+    # Reuse the project's export folder so a rerun updates the delivered LAS and legends
+    # in place. The final writer uses an atomic replace for same-name files.
     export = project.parent / "export"
+    export.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
     identity = json_hash(
         {

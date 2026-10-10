@@ -149,7 +149,9 @@ def write_legends(directory, classes):
     rows.extend(classes["classes"])
     write_json(Path(directory) / "class_legend.json", rows)
     with (Path(directory) / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["name", "code", "color", "prompts"])
+        writer = csv.DictWriter(
+            stream, fieldnames=["name", "code", "color", "prompts"], delimiter=";"
+        )
         writer.writeheader()
         writer.writerows(
             dict(
