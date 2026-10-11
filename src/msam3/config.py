@@ -209,10 +209,8 @@ class VegetationPostprocessConfig(StrictModel):
     max_dem_residual_m: Positive = 0.15
     high_vegetation_min_height_m: Annotated[float, Field(ge=0)] = 1.2
     threshold_tolerance: Probability = 0.1
-    cluster_cell_size_m: Positive = 0.5
-    tree_cluster_min_height_m: Positive = 1.5
-    tree_cluster_radius_m: Positive = 2.5
-    tree_seed_min_sam_share: Probability = 0.65
+    sam_high_min_height_m: Positive = 0.4
+    sam_high_min_share: Probability = 0.65
 
 
 class UnknownFillConfig(StrictModel):

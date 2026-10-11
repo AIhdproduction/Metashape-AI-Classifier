@@ -296,48 +296,6 @@ def _terrain_dem_nodes(points, terrain_ids, config):
     return nodes
 
 
-def _vegetation_components(points, labels, candidates, low_code, high_code, cell_size):
-    """Describe 8-connected vegetation components in a horizontal grid."""
-    cells = np.floor(points[candidates, :2] / cell_size).astype(np.int64)
-    unique, inverse = np.unique(cells, axis=0, return_inverse=True)
-    low_cells = np.zeros(len(unique), dtype=bool)
-    high_cells = np.zeros(len(unique), dtype=bool)
-    np.logical_or.at(low_cells, inverse, labels[candidates] == low_code)
-    np.logical_or.at(high_cells, inverse, labels[candidates] == high_code)
-
-    parent = np.arange(len(unique), dtype=np.intp)
-
-    def root(index):
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
-
-    def join(left, right):
-        left, right = root(left), root(right)
-        if left != right:
-            parent[right] = left
-
-    lookup = {(int(cell[0]), int(cell[1])): index for index, cell in enumerate(unique)}
-    for index, cell in enumerate(unique):
-        x, y = int(cell[0]), int(cell[1])
-        for offset in ((0, 1), (1, -1), (1, 0), (1, 1)):
-            neighbour = lookup.get((x + offset[0], y + offset[1]))
-            if neighbour is not None:
-                join(index, neighbour)
-    roots = np.fromiter((root(index) for index in range(len(unique))), dtype=np.intp)
-    component_low = np.zeros(len(unique), dtype=bool)
-    component_high = np.zeros(len(unique), dtype=bool)
-    np.logical_or.at(component_low, roots, low_cells)
-    np.logical_or.at(component_high, roots, high_cells)
-    candidate_components = roots[inverse]
-    return (
-        candidate_components,
-        component_low[candidate_components] & component_high[candidate_components],
-        component_high,
-    )
-
-
 def _sample_dem_heights(points, candidate_ids, nodes, config, batch_size):
     """Sample local terrain planes from an in-memory DTM without writing temporary files."""
     heights = np.full(len(candidate_ids), np.nan, dtype=np.float64)
@@ -390,7 +348,7 @@ def _sample_dem_heights(points, candidate_ids, nodes, config, batch_size):
 
 
 def _split_vegetation_height(points, labels, shares, classes, config, batch_size):
-    """Split mixed vegetation with trusted terrain, preserving connected tree crowns."""
+    """Split vegetation by height above local terrain without radial tree expansion."""
     vegetation = config.vegetation
     available = {item.name for item in classes.classes}
     required = {vegetation.low_vegetation_class, vegetation.high_vegetation_class}
@@ -399,8 +357,7 @@ def _split_vegetation_height(points, labels, shares, classes, config, batch_size
         "trusted_dem_nodes": 0,
         "fallback_dem_nodes": 0,
         "fallback_points_used": 0,
-        "mixed_cluster_points": 0,
-        "tree_cluster_points": 0,
+        "strong_sam_high_points": 0,
         "reclassified": {},
     }
     if not vegetation.enabled or not required.issubset(available):
@@ -440,9 +397,6 @@ def _split_vegetation_height(points, labels, shares, classes, config, batch_size
     ):
         return empty
 
-    _, mixed_mask, _ = _vegetation_components(
-        points, snapshot, candidates, low_code, high_code, vegetation.cluster_cell_size_m
-    )
     heights, valid_surface = _sample_dem_heights(
         points, candidates, trusted_nodes, vegetation, batch_size
     )
@@ -458,31 +412,24 @@ def _split_vegetation_height(points, labels, shares, classes, config, batch_size
         fallback_points_used = int(len(accepted_missing))
 
     valid_heights = valid_surface & np.isfinite(heights)
-    tree_seed = (
+    strong_sam_high = (
         (snapshot[candidates] == high_code)
         & valid_heights
-        & (shares[candidates] >= vegetation.tree_seed_min_sam_share)
-        & (heights >= vegetation.tree_cluster_min_height_m)
+        & (shares[candidates] >= vegetation.sam_high_min_share)
+        & (heights >= vegetation.sam_high_min_height_m)
     )
-    tree_cluster_mask = np.zeros(len(candidates), dtype=bool)
-    if np.any(tree_seed):
-        tree_seed_tree = cKDTree(points[candidates[tree_seed], :2])
-        nearest, _ = tree_seed_tree.query(
-            points[candidates, :2],
-            k=1,
-            distance_upper_bound=vegetation.tree_cluster_radius_m,
-            workers=-1,
-        )
-        tree_cluster_mask = np.isfinite(nearest)
     tolerance = vegetation.high_vegetation_min_height_m * vegetation.threshold_tolerance
     proposed = snapshot[candidates].copy()
-    regular = valid_surface & ~tree_cluster_mask
-    # Flat vegetation is reliably low. A distant tree can no longer turn an entire grass
-    # component into class 5 merely because the two touch in the XY connectivity grid.
-    proposed[regular & (heights < vegetation.high_vegetation_min_height_m - tolerance)] = low_code
-    proposed[regular & (heights >= vegetation.high_vegetation_min_height_m + tolerance)] = high_code
-    # Only SAM-confident, DTM-supported trees pass this local radius to their trunk and crown.
-    proposed[tree_cluster_mask] = high_code
+    # Geometry determines the general split. This leaves no fixed-radius halo around a tree.
+    proposed[valid_surface & (heights < vegetation.high_vegetation_min_height_m - tolerance)] = (
+        low_code
+    )
+    proposed[valid_surface & (heights >= vegetation.high_vegetation_min_height_m + tolerance)] = (
+        high_code
+    )
+    # Preserve the actual SAM mask of a reliable hedge/tree near the threshold. Unlike the old
+    # radius rule, this never expands into a circular area beyond what SAM identified.
+    proposed[strong_sam_high] = high_code
     replace = labels[candidates] != proposed
     changed = Counter(int(code) for code in proposed[replace])
     labels[candidates[replace]] = proposed[replace]
@@ -491,8 +438,7 @@ def _split_vegetation_height(points, labels, shares, classes, config, batch_size
         "trusted_dem_nodes": int(len(trusted_nodes)),
         "fallback_dem_nodes": int(len(fallback_nodes)),
         "fallback_points_used": fallback_points_used,
-        "mixed_cluster_points": int(mixed_mask.sum()),
-        "tree_cluster_points": int(tree_cluster_mask.sum()),
+        "strong_sam_high_points": int(strong_sam_high.sum()),
         "reclassified": dict(sorted(changed.items())),
     }
 

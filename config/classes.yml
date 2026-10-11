@@ -20,11 +20,11 @@ classes:
     color: "#A51464" # Cyclone 3DR: Curbstone (class 74).
   - name: low_vegetation
     code: 3
-    prompts: [low vegetation, grass, shrubs, bushes]
+    prompts: [low vegetation, short grass, lawn, low ground cover]
     color: "#009600" # Cyclone 3DR: Low Vegetation (class 3).
   - name: tree
     code: 5
-    prompts: [tree, tall vegetation, tree canopy, foliage]
+    prompts: [tree, tall vegetation, tree canopy, foliage, hedge, hedgerow, bush, shrub]
     color: "#004100" # ASPRS LAS: High Vegetation (class 5).
   - name: building
     code: 6

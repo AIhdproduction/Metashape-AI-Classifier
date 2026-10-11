@@ -149,18 +149,24 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
     terrain = np.array(
         [
             [origin + x, y, 0.05 * x]
-            for origin in (0.0, 3.0)
+            for origin in (0.0, 3.0, 6.0)
             for x in (-0.4, 0.0, 0.4)
             for y in (-0.4, 0.0, 0.4)
         ],
         dtype=np.float32,
     )
     vegetation = np.array(
-        [[0.0, 0.0, 0.2], [0.0, 0.0, 0.8], [3.0, 0.0, 0.2], [3.0, 0.0, 1.6]],
+        [
+            [0.0, 0.0, 0.2],
+            [0.0, 0.0, 0.8],
+            [3.0, 0.0, 0.2],
+            [3.0, 0.0, 1.6],
+            [6.0, 0.0, 0.4],
+        ],
         dtype=np.float32,
     )
     points = np.vstack((terrain, vegetation))
-    labels = np.array([2] * len(terrain) + [5, 3, 3, 5], dtype=np.uint8)
+    labels = np.array([2] * len(terrain) + [5, 3, 3, 5, 5], dtype=np.uint8)
     shares = np.full(len(points), 0.95, dtype=np.float32)
     config = settings()
     config.vegetation = {
@@ -170,15 +176,17 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
         "min_dem_neighbors": 6,
         "max_dem_residual_m": 0.1,
         "high_vegetation_min_height_m": 0.5,
-        "cluster_cell_size_m": 0.5,
+        "sam_high_min_height_m": 0.4,
+        "sam_high_min_share": 0.65,
     }
 
     filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
 
-    assert filtered[-4] == 3  # Flat grass 3 m from the tree stays low despite its SAM tree label.
-    assert filtered[-3] == 5  # Mixed cluster: 80 cm is high vegetation.
-    assert filtered[-2] == 5  # Tree trunk stays high when its connected crown reaches 1.5 m.
-    assert filtered[-1] == 5
+    assert filtered[-5] == 3  # Flat grass stays low despite its SAM tree label.
+    assert filtered[-4] == 5  # 80 cm vegetation is high.
+    assert filtered[-3] == 3  # Low trunk points are not inflated by a circular tree radius.
+    assert filtered[-2] == 5  # The tall tree crown remains high.
+    assert filtered[-1] == 5  # A reliable 40 cm SAM hedge remains high near the threshold.
 
 
 def test_sparse_road_point_is_not_rejected_without_a_plane():
