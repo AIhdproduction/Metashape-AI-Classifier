@@ -166,6 +166,70 @@ def _fill_unknown_edges(tree, points, labels, classes, rules, config, batch_size
     return filled
 
 
+def _fill_unknown_planar_edges(points, labels, classes, config, batch_size):
+    """Assign an unknown point only when it lies on one nearby labelled surface plane."""
+    plane_config = config.planar_unknown_fill
+    if not plane_config.enabled:
+        return Counter()
+    available = {item.name: item.code for item in classes.classes}
+    names = [name for name in plane_config.class_names if name in available]
+    snapshot = labels.copy()
+    candidates = np.flatnonzero(snapshot == classes.unknown_code)
+    if not names or not len(candidates):
+        return Counter()
+
+    proposal = np.full(len(candidates), classes.unknown_code, dtype=np.uint8)
+    best_support = np.zeros(len(candidates), dtype=np.intp)
+    best_residual = np.full(len(candidates), np.inf, dtype=np.float64)
+    for name in names:
+        code = available[name]
+        support_ids = np.flatnonzero(snapshot == code)
+        if len(support_ids) < plane_config.min_same_neighbors:
+            continue
+        support_tree = cKDTree(points[support_ids])
+        neighbour_count = min(plane_config.neighbors, len(support_ids))
+        for start in range(0, len(candidates), batch_size):
+            selected = candidates[start : start + batch_size]
+            distances, nearest = support_tree.query(
+                points[selected],
+                k=neighbour_count,
+                distance_upper_bound=plane_config.radius_m,
+                workers=-1,
+            )
+            distances = np.asarray(distances).reshape(len(selected), -1)
+            nearest = np.asarray(nearest).reshape(len(selected), -1)
+            valid = (nearest < len(support_ids)) & np.isfinite(distances)
+            valid_count = valid.sum(axis=1)
+            usable = valid_count >= plane_config.min_same_neighbors
+            if not np.any(usable):
+                continue
+            safe = np.minimum(nearest, len(support_ids) - 1)
+            neighbours = points[support_ids[safe]].astype(np.float64, copy=False)
+            mean = (neighbours * valid[:, :, None]).sum(axis=1) / np.maximum(valid_count, 1)[
+                :, None
+            ]
+            centered = (neighbours - mean[:, None, :]) * valid[:, :, None]
+            covariance = np.einsum("bki,bkj->bij", centered, centered)
+            covariance /= np.maximum(valid_count, 1)[:, None, None]
+            eigenvalues, vectors = np.linalg.eigh(covariance)
+            normal = vectors[:, :, 0]
+            residual = np.abs(np.sum((points[selected] - mean) * normal, axis=1))
+            planar = eigenvalues[:, 1] >= plane_config.min_planar_spread_m**2
+            accepted = usable & planar & (residual <= plane_config.max_plane_offset_m)
+            global_positions = start + np.flatnonzero(accepted)
+            stronger = valid_count[accepted] > best_support[global_positions]
+            equal_support = valid_count[accepted] == best_support[global_positions]
+            closer = residual[accepted] < best_residual[global_positions]
+            replace = stronger | (equal_support & closer)
+            positions = global_positions[replace]
+            proposal[positions] = code
+            best_support[positions] = valid_count[accepted][replace]
+            best_residual[positions] = residual[accepted][replace]
+    accepted = proposal != classes.unknown_code
+    labels[candidates[accepted]] = proposal[accepted]
+    return Counter(int(code) for code in proposal[accepted])
+
+
 def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
     if not config.building.enabled:
         return 0
@@ -553,6 +617,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     unknown_edges = _fill_unknown_edges(
         tree, points, labels, classes, rules, config, batch_size, road_code
     )
+    planar_edges = _fill_unknown_planar_edges(points, labels, classes, config, batch_size)
     output = Path(directory) / config.output_subdir
     output.mkdir(parents=True, exist_ok=True)
     atomic_json(
@@ -565,6 +630,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "road_surface_to_road": road_surface,
             "holes_filled": dict(sorted(filled.items())),
             "unknown_edges_filled": dict(sorted(unknown_edges.items())),
+            "planar_unknown_edges_filled": dict(sorted(planar_edges.items())),
             "flat_roof_ground_to_building": roofs,
             "ground_height_to_unknown": ground_height_rejected,
             "vegetation_dem": vegetation_height,

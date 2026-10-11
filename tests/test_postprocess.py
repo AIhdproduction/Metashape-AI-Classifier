@@ -96,6 +96,32 @@ def test_postprocess_fills_only_a_strongly_supported_unknown_edge(tmp_path):
     assert filtered[4] == 2
 
 
+def test_postprocess_fills_unknown_points_on_a_building_plane(tmp_path):
+    facade = np.array(
+        [[0.0, y, z] for y in (-0.2, 0.0, 0.2) for z in (-0.2, 0.0, 0.2)],
+        dtype=np.float32,
+    )
+    on_plane = np.array([[0.0, 0.05, 0.05]], dtype=np.float32)
+    away_from_plane = np.array([[0.15, 0.05, 0.05]], dtype=np.float32)
+    points = np.vstack((facade, on_plane, away_from_plane))
+    labels = np.array([6] * len(facade) + [1, 1], dtype=np.uint8)
+    shares = np.full(len(points), 0.99, dtype=np.float32)
+    config = settings()
+    config.planar_unknown_fill = {
+        "class_names": ["building"],
+        "radius_m": 0.5,
+        "neighbors": 9,
+        "min_same_neighbors": 8,
+        "min_planar_spread_m": 0.05,
+        "max_plane_offset_m": 0.08,
+    }
+
+    filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
+
+    assert filtered[-2] == 6
+    assert filtered[-1] == 1
+
+
 def test_postprocess_rejects_vertical_road_surfaces(tmp_path):
     points = np.array(
         [[2.0, x, z] for x in (-0.1, 0.0, 0.1) for z in (-0.1, 0.0, 0.1)], dtype=np.float32

@@ -221,6 +221,18 @@ class UnknownFillConfig(StrictModel):
     min_share: Probability = 0.75
 
 
+class PlanarUnknownFillConfig(StrictModel):
+    """Restore unknown edge points only where one labelled surface supplies a local plane."""
+
+    enabled: bool = True
+    class_names: list[str] = ["ground", "road", "sidewalk", "building"]
+    radius_m: Positive = 0.5
+    neighbors: Annotated[int, Field(ge=3, le=64)] = 16
+    min_same_neighbors: Annotated[int, Field(ge=3, le=64)] = 8
+    min_planar_spread_m: Positive = 0.05
+    max_plane_offset_m: Annotated[float, Field(ge=0)] = 0.08
+
+
 class RoadPostprocessConfig(StrictModel):
     enabled: bool = True
     road_class: str = "road"
@@ -248,6 +260,7 @@ class PostprocessConfig(StrictModel):
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
     vegetation: VegetationPostprocessConfig = Field(default_factory=VegetationPostprocessConfig)
     unknown_fill: UnknownFillConfig = Field(default_factory=UnknownFillConfig)
+    planar_unknown_fill: PlanarUnknownFillConfig = Field(default_factory=PlanarUnknownFillConfig)
     road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)
 
 

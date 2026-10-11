@@ -127,6 +127,14 @@ postprocess:
     enabled: true # Extend a class only into immediately adjacent unclassified edge points.
     min_same_neighbors: 5
     min_share: 0.75 # At least 75% of local neighbours must agree on one class.
+  planar_unknown_fill:
+    enabled: true # Fill unknown edge points only when they lie on a local labelled surface plane.
+    class_names: [ground, road, sidewalk, building]
+    radius_m: 0.5
+    neighbors: 16
+    min_same_neighbors: 8
+    min_planar_spread_m: 0.05
+    max_plane_offset_m: 0.08
   road:
     enabled: true
     road_class: "road"
