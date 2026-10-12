@@ -209,6 +209,13 @@ def test_block_covering_entire_image_not_culled():
     assert 2 in selected
 
 
+def test_block_outside_camera_has_no_batches():
+    camera = Camera(1, 20, 20, np.eye(4), {"f": 10})
+    blocks = spatial_blocks(np.array([[100, 0, 10]], dtype=float), 1)
+
+    assert list(blocks.batches(camera, np.eye(4), 100)) == []
+
+
 def test_cache_corruption_and_model_change(tmp_path):
     cache = LabelCache(tmp_path, "config", "model")
     identity = {"size": [2, 2]}

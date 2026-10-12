@@ -98,6 +98,7 @@ class CacheConfig(StrictModel):
 class ValidationConfig(StrictModel):
     max_reprojection_px: Positive = 0.5
     max_tie_to_dense_m: Positive = 0.10
+    min_tie_points_inside_dense_share: Probability = 0.8
 
 
 class VisibilityConfig(StrictModel):

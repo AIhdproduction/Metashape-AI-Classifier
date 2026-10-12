@@ -26,6 +26,7 @@ cache:
 validation:
   max_reprojection_px: 0.5 # Hard maximum pixel error.
   max_tie_to_dense_m: 0.10 # Hard maximum median nearest distance.
+  min_tie_points_inside_dense_share: 0.8 # Cropped clouds are valid when enough tie-point samples still overlap their extent.
 visibility:
   mode: depth_maps # Export and use Metashape's calibrated depth map for each camera.
   zbuffer_scale: 0.5 # Fallback z-buffer resolution, relative to the original image.

@@ -89,7 +89,6 @@ def validate_package(directory: Path, settings: Settings) -> dict:
     )
     if not np.allclose(world, expected_world, atol=0.001 / unit, rtol=0):
         raise ValueError("Export transform does not reproduce Metashape validation coordinates")
-    minimum_distances = np.full(len(world), np.inf)
     with laspy.open(directory / "dense.las") as reader:
         if reader.header.point_count != metadata["point_count"]:
             raise ValueError("Exported LAS count differs from original dense-cloud count")
@@ -97,14 +96,25 @@ def validate_package(directory: Path, settings: Settings) -> dict:
         inside = (
             (world >= reader.header.mins - tolerance) & (world <= reader.header.maxs + tolerance)
         ).all(axis=1)
-        if not inside.all():
+        inside_count = int(inside.sum())
+        inside_share = inside_count / len(inside)
+        if inside_share < settings.validation.min_tie_points_inside_dense_share:
             raise ValueError(
-                f"Validation failed: {int((~inside).sum())} tie points lie outside "
-                "the exported dense-cloud bounding box. Check CRS and cloud extent."
+                "Validation failed: only "
+                f"{inside_count}/{len(inside)} tie points lie inside the exported dense-cloud "
+                "bounding box. Check CRS, transform and cloud extent."
             )
+        if not inside.all():
+            LOG.warning(
+                "Dense cloud is cropped: validating %d/%d tie points inside its extent",
+                inside_count,
+                len(inside),
+            )
+        world_inside = world[inside]
+        minimum_distances = np.full(len(world_inside), np.inf)
         for block in reader.chunk_iterator(settings.voting.batch_points):
             xyz = np.column_stack((block.x, block.y, block.z))
-            distances, _ = cKDTree(xyz).query(world, workers=-1)
+            distances, _ = cKDTree(xyz).query(world_inside, workers=-1)
             np.minimum(minimum_distances, distances * unit, out=minimum_distances)
     median = float(np.median(minimum_distances))
     LOG.info("Tie-to-dense median distance: %.6f m", median)
@@ -135,4 +145,6 @@ def validate_package(directory: Path, settings: Settings) -> dict:
         "median_tie_to_dense_m": median,
         "projection_count": len(errors),
         "tie_point_count": len(internal),
+        "tie_points_inside_dense": inside_count,
+        "tie_points_outside_dense": int((~inside).sum()),
     }

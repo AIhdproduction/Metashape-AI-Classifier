@@ -138,7 +138,21 @@ def process_chunk(
     preparation = time.perf_counter() - started
     segmentation_seconds, voting_seconds, images_used = 0.0, 0.0, 0
     backend = None
-    for camera in cameras:
+    for camera_index, camera in enumerate(cameras, start=1):
+        # A cropped dense cloud often leaves some registered cameras looking only at
+        # discarded areas.  Skip them before loading an image or invoking SAM.
+        # Blocks use conservative frustum culling, so a useful camera is never
+        # rejected merely because its projected block corners are imperfect.
+        matrix = camera.relative_matrix(cloud.origin_internal, cloud.metres_per_internal)
+        if next(blocks.batches(camera, matrix, settings.voting.batch_points), None) is None:
+            LOG.info(
+                "Chunk %s: camera %d/%d (%s) skipped; no remaining cloud points in view",
+                metadata["label"],
+                camera_index,
+                len(cameras),
+                camera.label,
+            )
+            continue
         image_start = time.perf_counter()
         size = (
             max(1, round(camera.width * settings.cache.scale)),
@@ -177,7 +191,6 @@ def process_chunk(
         )
         segmentation_seconds += time.perf_counter() - image_start
         vote_start = time.perf_counter()
-        matrix = camera.relative_matrix(cloud.origin_internal, cloud.metres_per_internal)
         zbuffer = None
         depth_map = None
         if settings.visibility.mode == "zbuffer":
@@ -233,11 +246,12 @@ def process_chunk(
         images_used += 1
         voting_seconds += time.perf_counter() - vote_start
         LOG.info(
-            "Chunk %s: image %d/%d (%s) complete",
+            "Chunk %s: camera %d/%d (%s) complete; %d images used",
             metadata["label"],
-            images_used,
+            camera_index,
             len(cameras),
             camera.label,
+            images_used,
         )
         del zbuffer, depth_map
     result, shares = votes.decide()

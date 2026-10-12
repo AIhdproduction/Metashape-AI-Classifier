@@ -136,6 +136,27 @@ def test_validation_prevents_inference(package):
     assert backend.calls == 0
 
 
+def test_validation_accepts_a_cropped_dense_cloud(package):
+    directory, settings, _, _ = package
+    path = directory / "dense.las"
+    las = laspy.read(path)
+    keep = np.asarray(las.x) > np.quantile(np.asarray(las.x), 0.1)
+    las.points = las.points[keep]
+    las.write(path)
+    metadata_path = directory / "chunk.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["point_count"] = int(keep.sum())
+    atomic_json(metadata_path, metadata)
+
+    report = validate_package(directory, settings)
+
+    assert (
+        report["tie_points_inside_dense"] + report["tie_points_outside_dense"]
+        == report["tie_point_count"]
+    )
+    assert report["tie_points_outside_dense"] > 0
+
+
 def test_tie_dense_distance_gate(package):
     directory, settings, _, _ = package
     path = directory / "dense.las"
