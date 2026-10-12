@@ -14,8 +14,8 @@ import psutil
 from msam3.cache import atomic_json
 
 IMAGE_LINE = re.compile(
-    r"^(?P<time>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ INFO .* image "
-    r"(?P<done>\d+)/(?P<total>\d+) \((?P<name>[^)]+)\) complete$"
+    r"^(?P<time>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ INFO .* (?:image|camera) "
+    r"(?P<done>\d+)/(?P<total>\d+) \((?P<name>[^)]+)\) complete(?:; \d+ images used)?$"
 )
 PHASES = {
     "prepare": "1/4: Einstellungen und Modell werden geprüft",
