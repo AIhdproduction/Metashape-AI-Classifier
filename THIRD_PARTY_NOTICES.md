@@ -1,9 +1,36 @@
 # Third-party notices
 
-The project's [LICENSE](LICENSE) covers original AIhdproduction material only. It does not
-replace any third-party license or grant ownership of third-party code, models or methods.
+## Original project development
 
-## SAM 3
+The project-specific application code was independently developed for AIhdproduction's
+Metashape SAM 3 Point Cloud Classifier. This includes the Metashape workflow, point-cloud
+classification pipeline and integration with the separately installed SAM 3 package.
+The project's original material is covered by [LICENSE](LICENSE).
+
+The references below acknowledge scientific inspiration and identify external software
+used by the application. A methodological reference does not mean that its source code
+is included in this repository. External libraries and models remain the work of their
+respective authors and are subject to their own licenses.
+
+## SegEarth-OV3 — scientific inspiration
+
+Li et al., *SegEarth-OV3: Exploring SAM 3 for Open-Vocabulary Semantic Segmentation in Remote
+Sensing Images*, arXiv:2512.08730. https://arxiv.org/abs/2512.08730
+
+Reference project: https://github.com/earth-insights/SegEarth-OV-3
+
+SegEarth-OV3 served as scientific and methodological inspiration for the use of SAM 3 in
+remote-sensing image segmentation. Its paper and reference implementation were consulted
+to understand the approach. No source code from the SegEarth-OV3 repository was copied
+into or is distributed with this project.
+
+The probability-fusion and tiling code was independently written for this application
+using the described method and this project's requirements. The implementation also makes
+its own design choices: overlapping tiles are combined by per-class maximum, whereas the
+reference implementation averages overlaps. The citation credits the underlying research;
+it does not claim authorship of that research or imply affiliation with its authors.
+
+## SAM 3 — external model and software dependency
 
 Official implementation: https://github.com/facebookresearch/sam3
 
@@ -26,18 +53,6 @@ or derivatives of those materials. Section 1.b.i requires a copy of Meta's agree
 SAM Materials or their derivatives are distributed; a link alone does not satisfy that
 requirement. Anyone bundling those materials must handle those obligations separately.
 These notes do not grant rights in outputs or override Meta's applicable terms.
-
-## SegEarth-OV3
-
-Li et al., *SegEarth-OV3: Exploring SAM 3 for Open-Vocabulary Semantic Segmentation in Remote
-Sensing Images*, arXiv:2512.08730. https://arxiv.org/abs/2512.08730
-
-Reference implementation studied: https://github.com/earth-insights/SegEarth-OV-3
-
-The GitHub license endpoint returned 404 during inspection. No source code from that
-repository is included. Probability fusion and tiling were independently implemented from
-the task specification and method description. The reference's overlap averaging differs
-from this tool's explicitly requested per-class maximum merge.
 
 ## Other dependencies
 

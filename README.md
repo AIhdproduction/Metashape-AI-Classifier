@@ -370,6 +370,7 @@ SAM 3 code and weights are separately subject to
 **[Meta's SAM License](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE)**.
 Weights are not redistributed here; upstream SAM 3 code is installed separately.
 Using only generated outputs does not exempt the person running SAM 3 from Meta's terms.
-Metashape requires its own license. The method cites SegEarth-OV3; no SegEarth repository
-code was copied because its license could not be established during implementation.
+Metashape requires its own license. SegEarth-OV3 provided scientific and methodological
+inspiration; the project's probability-fusion and tiling code was independently developed.
+No source code from the SegEarth-OV3 repository is included or redistributed.
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
