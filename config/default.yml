@@ -74,7 +74,6 @@ postprocess:
   output_subdir: "post_sam_filter" # Per-chunk report folder below work/.
   neighborhood_radius_m: 0.35 # Metric neighbourhood for NPI outlier removal and hole filling.
   neighbors: 16 # Nearest neighbours inspected per representative point.
-  npi_preserve_confidence: 0.9 # Keep very confident isolated detections.
   class_rules:
     ground: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.75, max_replaced_confidence: 0.55}
     road: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.55}
@@ -92,11 +91,16 @@ postprocess:
     scaffolding: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
     construction_material: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
     water: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.8, max_replaced_confidence: 0.45}
+  cluster:
+    enabled: true # Every semantic class needs a local point cluster; isolated or flying fragments become unclassified.
+    radius_m: 0.45
+    neighbors: 12
+    min_same_neighbors: 4
   building:
     enabled: true
     ground_class: "ground"
     building_class: "building"
-    horizontal_radius_m: 0.75
+    horizontal_radius_m: 2.0 # Ground points high above several building points are flat-roof points, including roof interiors.
     min_vertical_drop_m: 1.0
     min_building_neighbors: 4
   ground:

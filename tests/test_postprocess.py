@@ -24,7 +24,6 @@ def settings():
         {
             "neighborhood_radius_m": 0.45,
             "neighbors": 8,
-            "npi_preserve_confidence": 0.9,
             "class_rules": {
                 "road": {
                     "min_same_neighbors": 2,
@@ -71,7 +70,7 @@ def test_postprocess_removes_isolated_points_fills_road_holes_and_repairs_roofs(
     )
 
     assert filtered[4] == 11  # Low-confidence hole surrounded by horizontal road.
-    assert filtered[9] == 6  # Ground point is clearly above four building support points.
+    assert filtered[9] == 1  # A single roof point is removed by the all-class cluster filter.
     assert filtered[-1] == 1  # Isolated low-confidence ground point is removed by NPI.
     assert (tmp_path / "post_sam_filter" / "postprocess_report.json").is_file()
 
@@ -159,16 +158,55 @@ def test_postprocess_rejects_ground_points_above_or_below_local_ground(tmp_path)
     assert np.all(filtered[-2:] == 1)
 
 
-def test_postprocess_keeps_sparse_ground_without_a_local_plane(tmp_path):
+def test_postprocess_removes_a_confident_single_point_from_every_class(tmp_path):
     points = np.array([[0.0, 0.0, 5.0]], dtype=np.float32)
-    labels = np.array([2], dtype=np.uint8)
+    labels = np.array([5], dtype=np.uint8)
     shares = np.array([0.95], dtype=np.float32)
 
     filtered = apply_postprocess(
         points, labels, shares, classes(), settings(), tmp_path, batch_size=32
     )
 
-    assert filtered[0] == 2
+    assert filtered[0] == 1
+
+
+def test_postprocess_keeps_a_dense_cluster_from_every_class(tmp_path):
+    points = np.array(
+        [[x, y, 2.0] for x in (-0.1, 0.0, 0.1) for y in (-0.1, 0.0, 0.1)],
+        dtype=np.float32,
+    )
+    labels = np.full(len(points), 5, dtype=np.uint8)
+    shares = np.full(len(points), 0.99, dtype=np.float32)
+
+    filtered = apply_postprocess(
+        points, labels, shares, classes(), settings(), tmp_path, batch_size=32
+    )
+
+    assert np.all(filtered == 5)
+
+
+def test_postprocess_assigns_wide_flat_roof_ground_to_building(tmp_path):
+    roof = np.array(
+        [[x, y, 3.0] for x in (-0.1, 0.0, 0.1) for y in (-0.1, 0.0, 0.1)],
+        dtype=np.float32,
+    )
+    facade = np.array(
+        [[x, y, z] for x in (-1.5, 1.5) for y in (-1.5, 1.5) for z in (0.0, 1.0)],
+        dtype=np.float32,
+    )
+    points = np.vstack((roof, facade))
+    labels = np.array([2] * len(roof) + [6] * len(facade), dtype=np.uint8)
+    shares = np.full(len(points), 0.99, dtype=np.float32)
+    config = settings()
+    config.building = {
+        "horizontal_radius_m": 3.0,
+        "min_vertical_drop_m": 1.0,
+        "min_building_neighbors": 4,
+    }
+
+    filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
+
+    assert np.all(filtered[: len(roof)] == 6)
 
 
 def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
@@ -205,6 +243,7 @@ def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):
         "sam_high_min_height_m": 0.4,
         "sam_high_min_share": 0.65,
     }
+    config.cluster.enabled = False  # This test isolates the DTM height split from cluster cleanup.
 
     filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
 
@@ -244,4 +283,4 @@ def test_postprocess_replaces_vegetation_enclosed_by_a_flat_road(tmp_path):
     )
 
     assert filtered[-2] == 11  # High-confidence false vegetation inside the road is corrected.
-    assert filtered[-1] == 3  # Vegetation beside the road lacks all-around road support.
+    assert filtered[-1] == 1  # An isolated vegetation point is now removed for every class.

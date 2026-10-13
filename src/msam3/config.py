@@ -172,6 +172,15 @@ class ClassPostprocessRule(StrictModel):
     max_replaced_confidence: Probability = 0.55
 
 
+class ClusterPostprocessConfig(StrictModel):
+    """Reject isolated semantic fragments for every configured output class."""
+
+    enabled: bool = True
+    radius_m: Positive = 0.45
+    neighbors: Annotated[int, Field(ge=1, le=64)] = 12
+    min_same_neighbors: Annotated[int, Field(ge=1, le=64)] = 4
+
+
 class BuildingPostprocessConfig(StrictModel):
     enabled: bool = True
     ground_class: str = "ground"
@@ -255,8 +264,8 @@ class PostprocessConfig(StrictModel):
     output_subdir: str = "post_sam_filter"
     neighborhood_radius_m: Positive = 0.35
     neighbors: Annotated[int, Field(ge=2, le=64)] = 16
-    npi_preserve_confidence: Probability = 0.9
     class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
+    cluster: ClusterPostprocessConfig = Field(default_factory=ClusterPostprocessConfig)
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
     vegetation: VegetationPostprocessConfig = Field(default_factory=VegetationPostprocessConfig)

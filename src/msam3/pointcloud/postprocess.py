@@ -66,7 +66,35 @@ def _slopes(tree, points, ids, config: PostprocessConfig, batch_size):
     return slopes
 
 
-def _remove_isolated(tree, points, labels, shares, unknown, rules, config, batch_size):
+def _remove_unclustered(tree, points, labels, classes, config, batch_size):
+    """Remove every labelled point that lacks a local cluster of its own class."""
+    cluster = config.cluster
+    if not cluster.enabled:
+        return Counter()
+    removed = Counter()
+    snapshot = labels.copy()
+    for item in classes.classes:
+        code = item.code
+        ids = np.flatnonzero(snapshot == code)
+        if not len(ids):
+            continue
+        for selected, distances, indices in _neighbours(
+            tree,
+            points,
+            ids,
+            cluster.neighbors,
+            cluster.radius_m,
+            batch_size,
+        ):
+            support, _ = _support(snapshot, indices, distances, code)
+            reject = support < cluster.min_same_neighbors
+            if np.any(reject):
+                labels[selected[reject]] = classes.unknown_code
+                removed[int(code)] += int(reject.sum())
+    return removed
+
+
+def _remove_isolated(tree, points, labels, unknown, rules, config, batch_size):
     removed = Counter()
     snapshot = labels.copy()
     for code, rule in rules.items():
@@ -82,9 +110,9 @@ def _remove_isolated(tree, points, labels, shares, unknown, rules, config, batch
             batch_size,
         ):
             support, _ = _support(snapshot, indices, distances, code)
-            reject = (support < rule.min_same_neighbors) & (
-                shares[selected] < config.npi_preserve_confidence
-            )
+            # A confident single point is still a reconstruction artefact. Confidence
+            # describes SAM's image vote, not whether a 3D point belongs to an object.
+            reject = support < rule.min_same_neighbors
             if np.any(reject):
                 labels[selected[reject]] = unknown
                 removed[int(code)] += int(reject.sum())
@@ -230,7 +258,7 @@ def _fill_unknown_planar_edges(points, labels, classes, config, batch_size):
     return Counter(int(code) for code in proposal[accepted])
 
 
-def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
+def _repair_flat_roofs(points, labels, classes, config, batch_size):
     if not config.building.enabled:
         return 0
     names = [config.building.ground_class, config.building.building_class]
@@ -240,25 +268,29 @@ def _repair_flat_roofs(tree, points, labels, classes, config, batch_size):
     ground, building = _class_codes(classes, names).values()
     snapshot = labels.copy()
     candidates = np.flatnonzero(snapshot == ground)
+    building_ids = np.flatnonzero(snapshot == building)
+    if not len(candidates) or not len(building_ids):
+        return 0
     repaired = 0
-    # A roof is intentionally above the facade. Use XY distance here, rather than a 3D radius.
-    horizontal_tree = cKDTree(points[:, :2])
+    # Query only known building points. Querying the whole cloud would let nearby roof
+    # points consume the neighbour slots and hide the building facade below a wide roof.
+    horizontal_tree = cKDTree(points[building_ids, :2])
+    neighbour_count = min(config.neighbors, len(building_ids))
     for start in range(0, len(candidates), batch_size):
         selected = candidates[start : start + batch_size]
         distances, indices = horizontal_tree.query(
             points[selected, :2],
-            k=config.neighbors + 1,
+            k=neighbour_count,
             distance_upper_bound=config.building.horizontal_radius_m,
             workers=-1,
         )
-        distances, indices = distances[:, 1:], indices[:, 1:]
-        valid = (indices < len(labels)) & np.isfinite(distances)
-        safe = np.minimum(indices, len(labels) - 1)
-        building_neighbours = valid & (snapshot[safe] == building)
-        vertical_drop = points[selected, 2, None] - points[safe, 2]
-        support = np.sum(
-            building_neighbours & (vertical_drop >= config.building.min_vertical_drop_m), axis=1
-        )
+        distances = np.asarray(distances).reshape(len(selected), -1)
+        indices = np.asarray(indices).reshape(len(selected), -1)
+        valid = (indices < len(building_ids)) & np.isfinite(distances)
+        safe = np.minimum(indices, len(building_ids) - 1)
+        neighbours = points[building_ids[safe]]
+        vertical_drop = points[selected, 2, None] - neighbours[:, :, 2]
+        support = np.sum(valid & (vertical_drop >= config.building.min_vertical_drop_m), axis=1)
         replace = support >= config.building.min_building_neighbors
         labels[selected[replace]] = building
         repaired += int(replace.sum())
@@ -591,7 +623,7 @@ def _repair_road_surface(points, labels, classes, config, batch_size, road_code)
 
 
 def apply_postprocess(points, labels, shares, classes, config, directory, batch_size):
-    """Apply NPI outlier removal plus ground, vegetation, roof, and road geometry rules."""
+    """Apply geometry, cluster, and surface cleanup after SAM image voting."""
     labels = np.asarray(labels, dtype=np.uint8).copy()
     if not config.enabled or not len(labels):
         return labels
@@ -599,15 +631,16 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
     rules = {codes[name]: rule for name, rule in config.class_rules.items()}
     tree = cKDTree(points)
     before = Counter(int(code) for code in labels)
-    roofs = _repair_flat_roofs(tree, points, labels, classes, config, batch_size)
+    roofs = _repair_flat_roofs(points, labels, classes, config, batch_size)
     ground_height_rejected = _reject_ground_height_outliers(
         points, labels, classes, config, batch_size
     )
     vegetation_height = _split_vegetation_height(
         points, labels, shares, classes, config, batch_size
     )
+    cluster_removed = _remove_unclustered(tree, points, labels, classes, config, batch_size)
     removed = _remove_isolated(
-        tree, points, labels, shares, classes.unknown_code, rules, config, batch_size
+        tree, points, labels, classes.unknown_code, rules, config, batch_size
     )
     road_rejected, road_code = _restrict_road_slope(
         tree, points, labels, classes, config, batch_size
@@ -626,6 +659,7 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
             "before_counts": dict(sorted(before.items())),
             "after_counts": dict(sorted(Counter(int(code) for code in labels).items())),
             "npi_removed": dict(sorted(removed.items())),
+            "cluster_to_unknown": dict(sorted(cluster_removed.items())),
             "road_slope_removed": road_rejected,
             "road_surface_to_road": road_surface,
             "holes_filled": dict(sorted(filled.items())),

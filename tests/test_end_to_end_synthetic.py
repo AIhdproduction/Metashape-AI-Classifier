@@ -86,6 +86,9 @@ def package(tmp_path):
     settings.cache.scale = 1
     settings.voting.batch_points = 107
     settings.voting.voxel_buckets = 4
+    # The synthetic 30 cm grid is intentionally too sparse for the real 45 cm
+    # all-class cluster filter; this fixture validates projection and LAS I/O instead.
+    settings.postprocess.cluster.enabled = False
     return tmp_path, settings, classes, np.where(points[:, 0] < 0, 2, 64)
 
 
