@@ -1,0 +1,327 @@
+{
+  "nav": {
+    "overview": "Übersicht",
+    "models": "Modelle",
+    "classes": "Klassen",
+    "settings": "Einstellungen",
+    "log": "Protokoll"
+  },
+  "common": {
+    "about": "ca.",
+    "cancel": "Abbrechen",
+    "copied": "In die Zwischenablage kopiert."
+  },
+  "action": {
+    "start": "Klassifikation starten",
+    "cancel": "Abbrechen",
+    "cancelling": "Wird abgebrochen …",
+    "open": "Öffnen",
+    "close_project": "Zurück zu den Projekten",
+    "to_models": "Modell einrichten",
+    "to_log": "Protokoll ansehen",
+    "open_folder": "Ordner öffnen",
+    "copy_path": "Pfad kopieren",
+    "copy": "Kopieren",
+    "copy_log": "Protokoll kopieren",
+    "recheck": "Erneut prüfen",
+    "select_model": "{model} wählen",
+    "add_class": "Klasse hinzufügen",
+    "edit": "Bearbeiten",
+    "edit_prompts": "Suchbegriffe bearbeiten",
+    "remove": "Entfernen",
+    "reset": "Auf Standard zurücksetzen",
+    "save": "Speichern",
+    "stop_worker": "Hintergrundprozess beenden",
+    "auto_batch": "Auto: maximal sicher"
+  },
+  "lock": {
+    "standalone": "Der Start erfolgt aus Metashape: Projekt öffnen, dann Werkzeuge > Skript ausführen (Tools > Run Script) und start_in_metashape.py wählen.",
+    "viewing": "Ein früherer Lauf wird nur angezeigt und lässt sich nicht ändern.",
+    "running": "Während des Laufs sind Änderungen gesperrt.",
+    "finished": "Dieser Lauf ist beendet. Für einen neuen Lauf das Skript in Metashape erneut starten.",
+    "model_missing": "Die Dateien des gewählten Modells fehlen auf diesem PC.",
+    "model_invalid": "Die Dateien des gewählten Modells sind unvollständig oder passen nicht.",
+    "model_runtime": "Die Programmpakete des gewählten Modells fehlen. Bitte install.bat erneut ausführen.",
+    "classes": "Die eigenen SAM-3-Klassen sind fehlerhaft. Bitte unter Klassen auf Standard zurücksetzen oder config/classes.user.yml korrigieren."
+  },
+  "overview": {
+    "empty_title": "Kein Projekt geöffnet",
+    "empty_hint": "Metashape AI Classifier klassifiziert die Punktwolke des Projekts, das in Metashape geöffnet ist.",
+    "recent": "Letzte Projekte",
+    "recent_empty": "Es gibt noch keine früheren Läufe.",
+    "ready_title": "Punktwolke klassifizieren",
+    "photos": "{count} aktivierte Kamerabilder",
+    "summary": "Profil {profile} · {classes} Klassen · Ergebnis «{label}»",
+    "viewing": "Früherer Lauf, nur Ansicht"
+  },
+  "recent": {
+    "open": "nicht abgeschlossen",
+    "prepare": "nicht abgeschlossen",
+    "export": "nicht abgeschlossen",
+    "classify": "nicht abgeschlossen",
+    "import": "nicht abgeschlossen",
+    "complete": "fertig",
+    "cancelled": "abgebrochen",
+    "error": "Fehler"
+  },
+  "model": {
+    "speed_note": "Segmentierung, gemessen im SAMcloud-Drohnentest (ca. 2 s statt 30 s pro Foto). Export, Punkt-Voting und Import werden nicht schneller; je nach Auflösung weicht der Faktor ab.",
+    "flurseg": {
+      "short": "ca. 15× schneller",
+      "choice": "11 feste Klassen, keine eigenen Suchbegriffe.",
+      "description": "Eigenes Modell (EoMT-DINOv3) für Drohnenfotos von Baustellen, Strassen und Siedlungen. Standard.",
+      "speed": "ca. 15× schneller",
+      "classes": "11 feste Klassen",
+      "accuracy": "bei dünnen Klassen schwächer als SAM 3",
+      "licence": "DINOv3 License",
+      "missing": "FlurSeg ist nicht installiert. Die drei Dateien config.json, model.safetensors (1.26 GB) und preprocessor_config.json aus dem Ordner v1 herunterladen und in diesen Ordner legen:",
+      "target": "Zielordner auf diesem PC",
+      "link": "FlurSeg v1 auf Hugging Face",
+      "command": "Befehl für PowerShell"
+    },
+    "sam3": {
+      "short": "eigene Klassen",
+      "choice": "Erkennt eigene Klassen über englische Suchbegriffe, ist aber deutlich langsamer.",
+      "description": "Meta SAM 3 sucht jede Klasse über Suchbegriffe. Eigene Klassen lassen sich frei ergänzen.",
+      "speed": "langsamer (Referenz)",
+      "classes": "frei editierbar, mit eigenen Klassen",
+      "accuracy": "im Modelltest genauer als FlurSeg",
+      "licence": "Meta SAM License",
+      "missing": "SAM 3 ist nicht installiert. Es ist nur nötig, wenn SAM 3 gewählt wird: Zugriff bei Meta beantragen und sam3.pt an diesen Ort legen:",
+      "target": "Zieldatei auf diesem PC",
+      "link": "SAM 3 auf Hugging Face (Zugriff beantragen)",
+      "command": "Befehl für PowerShell (nach Freigabe und hf auth login)"
+    }
+  },
+  "models": {
+    "intro": "Beide Modelle laufen lokal. Es wird nur das gewählte Modell benötigt.",
+    "rechecked": "Modelle geprüft.",
+    "selected": "Gewählt",
+    "manual_copy": "Der Pfad ist in der Konfiguration angepasst. Die Dateien von Hand an diesen Ort kopieren.",
+    "fact": {
+      "speed": "Tempo",
+      "classes": "Klassen",
+      "accuracy": "Genauigkeit",
+      "licence": "Lizenz"
+    },
+    "state": {
+      "ready": "Installiert",
+      "missing": "Fehlt",
+      "invalid": "Ungültig",
+      "runtime": "Paket fehlt"
+    },
+    "weights": {
+      "v1": "v1",
+      "unknown": "nicht v1 / unbekannte Gewichte",
+      "checking": "wird geprüft"
+    }
+  },
+  "estimate": {
+    "value": "Geschätzte Laufzeit: {time}",
+    "unknown": "Geschätzte Laufzeit: noch nicht berechenbar",
+    "windows_default": "Schätzung aus {count} Bildfenstern mit {rate} s pro Fenster (gemessen mit fp32 auf RTX 4090), dazu Export und Import.",
+    "windows_history": "Schätzung aus {count} Bildfenstern und früheren FlurSeg-Läufen dieses Projekts, dazu Export und Import.",
+    "tiles_default": "Schätzung aus {count} Bildkacheln mit einem Erfahrungswert für SAM 3, dazu Export und Import.",
+    "tiles_history": "Schätzung aus {count} Bildkacheln und früheren SAM-3-Läufen dieses Projekts, dazu Export und Import."
+  },
+  "flow": {
+    "title": "Projektablauf",
+    "waiting": "Ausstehend",
+    "active": "Läuft",
+    "done": "Fertig",
+    "error": "Fehler",
+    "cancelled": "Abgebrochen",
+    "total": "Gesamtzeit",
+    "per_step": "Zeit je Schritt",
+    "storage": "Speicherbedarf",
+    "storage_work": "Arbeitsdaten",
+    "storage_free": "Frei auf dem Laufwerk"
+  },
+  "step": {
+    "prepare": "Vorbereitung",
+    "export": "Export aus Metashape",
+    "classify": "Segmentierung und Voting",
+    "import": "Import und LAS"
+  },
+  "running": {
+    "banner": "Der Lauf geht weiter, auch wenn dieses Fenster neu geladen oder geschlossen wird. Metashape bitte geöffnet lassen.",
+    "prepare": "Einstellungen und Modell werden geprüft",
+    "export": "Metashape exportiert Punktwolke und Kameras",
+    "classify": "Die Kamerabilder werden klassifiziert",
+    "import": "Metashape importiert die klassifizierte Punktwolke",
+    "keep_open": "Bitte Metashape geöffnet lassen.",
+    "loading": "Geometrie wird geprüft und das Modell geladen …",
+    "first": "Das Modell arbeitet am ersten von {total} Bildern …",
+    "finishing": "Alle Bilder sind fertig. Nachfilter und LAS werden berechnet …",
+    "images": "Bild {done} von {total}: {name}",
+    "remaining": "Bilder noch ca. {time}"
+  },
+  "cancel": {
+    "requested": "Der Abbruch läuft bereits.",
+    "locked": "Abbrechen ist nur während Vorbereitung und Berechnung möglich, nicht während Export und Import."
+  },
+  "worker": {
+    "running": "Der Hintergrundprozess dieses Laufs rechnet noch und belegt die GPU, obwohl Metashape nicht mehr auf ihn wartet."
+  },
+  "result": {
+    "banner": "Fertig. Die Punktwolke «{label}» ist in Metashape importiert. Die 3D-Ansicht ist Metashape.",
+    "title": "Klassifizierte Punkte",
+    "total": "{model} · {count} Punkte",
+    "code": "LAS {code}",
+    "output": "Klassifizierte LAS-Datei"
+  },
+  "failed": {
+    "title": "Die Klassifikation ist fehlgeschlagen",
+    "hint": "Details stehen im Protokoll. Nach der Korrektur das Skript in Metashape erneut starten.",
+    "interrupted": "Die Verbindung zum Skript in Metashape ist beendet. Metashape wurde geschlossen oder das Skript abgebrochen.",
+    "unknown": "Unbekannter Fehler."
+  },
+  "cancelled": {
+    "banner": "Abgebrochen. Es wurde keine klassifizierte Punktwolke importiert.",
+    "title": "Abgebrochen",
+    "hint": "Dieses Fenster kann geschlossen werden. Für einen neuen Lauf das Skript in Metashape erneut starten."
+  },
+  "inactive": {
+    "title": "Wegen deaktivierter Klassen inaktiv:",
+    "line": "{helper} (es fehlt: {classes})",
+    "ground_assist": "Bodenhilfe",
+    "vegetation_assist": "Vegetationshilfe",
+    "vegetation": "Vegetationstrennung nach Höhe",
+    "road": "Strassenkorrektur",
+    "roof": "Korrektur von Flachdächern",
+    "ground_height": "Filter für abgelöste Bodenpunkte"
+  },
+  "classes": {
+    "kind": {
+      "flurseg": "feste Klassen",
+      "sam3": "eigene Klassen"
+    },
+    "fixed_reason": "FlurSeg wurde auf genau diese 11 Klassen trainiert. Sie stecken in den Gewichten und lassen sich nicht ändern. Für eigene Klassen SAM 3 wählen.",
+    "fixed_title": "Die 11 Klassen von FlurSeg",
+    "editable_reason": "SAM 3 sucht jede Klasse über englische Suchbegriffe. Hier lassen sich Begriffe anpassen, Standardklassen abschalten und eigene Klassen ergänzen. Diese Änderungen gelten nur für SAM 3.",
+    "own_title": "Eigene Klassen",
+    "own_empty": "Noch keine eigenen Klassen.",
+    "standard_title": "Standardklassen",
+    "disabled": "abgeschaltet",
+    "saved": "Klassen gespeichert.",
+    "reset_title": "Klassen zurücksetzen?",
+    "reset_text": "Eigene Klassen, geänderte Suchbegriffe und abgeschaltete Klassen gehen verloren.",
+    "reset_finished": "Standardklassen wiederhergestellt.",
+    "code_note": "LAS-Code 1 bedeutet «nicht klassifiziert». Metashape importiert nur Codes unter 128."
+  },
+  "dialog": {
+    "add_class": "Klasse hinzufügen",
+    "edit_class": "Klasse bearbeiten",
+    "name": "Name",
+    "prompts": "Suchbegriffe auf Englisch",
+    "prompts_hint": "Mehrere Begriffe mit Komma trennen, zum Beispiel: manhole, manhole cover",
+    "color": "Farbe",
+    "code": "LAS-Code (leer = automatisch)",
+    "code_hint": "Erlaubt sind freie Codes von 2 bis 127. Der automatische Code bleibt danach fest."
+  },
+  "class_error": {
+    "name": "«{name}» geht nicht: Der Name braucht am Anfang einen Buchstaben und danach nur Buchstaben, Ziffern oder Unterstriche.",
+    "exists": "Den Namen «{name}» gibt es schon.",
+    "prompts": "«{name}» braucht mindestens einen englischen Suchbegriff.",
+    "color": "«{color}» ist keine Farbe im Format #RRGGBB.",
+    "code_range": "Der LAS-Code {code} liegt ausserhalb von {low} bis {high}.",
+    "code_used": "Der LAS-Code {code} ist bereits vergeben.",
+    "code_whole": "Der LAS-Code muss eine ganze Zahl sein.",
+    "no_code": "Es ist kein freier LAS-Code unter 128 mehr vorhanden.",
+    "not_standard": "«{name}» ist keine Standardklasse.",
+    "none_left": "Mindestens eine Klasse muss aktiv bleiben.",
+    "file": "Die Klassendatei {path} lässt sich nicht lesen: {detail}"
+  },
+  "profile": {
+    "fast": "Schnell",
+    "balanced": "Ausgewogen",
+    "accurate": "Hohe Genauigkeit",
+    "custom": "Benutzerdefiniert",
+    "custom_hint": "Benutzerdefiniert: Die Werte entsprechen keinem Profil.",
+    "flurseg_fast": "Längere Bildseite 3200 px. Am schnellsten, dünne Klassen (Randstein, Markierung, Schachtdeckel) leiden am meisten.",
+    "flurseg_balanced": "Längere Bildseite 4000 px, wie in SAMcloud. Dünne Klassen verlieren bei sehr grossen Fotos etwas an Genauigkeit.",
+    "flurseg_accurate": "Originalauflösung, wie von der Modellkarte empfohlen. Am genauesten für dünne Klassen.",
+    "sam3_fast": "50 % Bildauflösung, 10 % Überlappung, 1 Beobachtung je Punkt.",
+    "sam3_balanced": "75 % Bildauflösung, 20 % Überlappung, 1 Beobachtung je Punkt.",
+    "sam3_accurate": "100 % Bildauflösung, 30 % Überlappung, 2 Beobachtungen je Punkt."
+  },
+  "settings": {
+    "standalone": "Die Einstellungen eines Laufs erscheinen, sobald die App aus Metashape gestartet wird. Die Standardwerte stehen in config/default.yml.",
+    "profile": "Profil",
+    "profile_hint": "Die Auswahl gilt nur für diesen Lauf. config/default.yml bleibt unverändert.",
+    "flurseg": "FlurSeg",
+    "flurseg_hint": "Fenster von 768 px mit halber Überlappung. Bei zu wenig Grafikspeicher wird die Fenstergruppe automatisch halbiert.",
+    "window_batch": "Fenster pro Durchgang",
+    "image_size": "Bildgrösse für die Segmentierung: {value}",
+    "long_side": "längere Seite höchstens {pixels} px",
+    "original": "Originalauflösung",
+    "sam": "SAM 3",
+    "sam_hint": "Kacheln von 1008 px. Mehr Suchbegriffe pro Durchgang sind schneller, brauchen aber mehr Grafikspeicher.",
+    "image_scale": "Bildauflösung",
+    "overlap": "Kachelüberlappung",
+    "min_views": "Bildbeobachtungen je Punkt",
+    "prompt_batch": "Suchbegriffe pro Durchgang",
+    "auto_done": "{batch} Suchbegriffe pro Durchgang gewählt ({free} von {total} GiB Grafikspeicher frei). Metashape und der PC können träge reagieren.",
+    "assists": "Hilfen aus Metashape",
+    "assists_hint": "Sie entscheiden nur dort, wo das Modell einen Punkt unbestimmt lässt.",
+    "ground_assist": "Bodenhilfe",
+    "vegetation_assist": "Vegetationshilfe",
+    "filters": "Nachfilter",
+    "filters_hint": "Aufräumen der Punktwolke nach dem Voting.",
+    "postprocess": "Geometrischen Nachfilter verwenden",
+    "vegetation": "Vegetation nach Höhe über dem Gelände trennen",
+    "road": "Strassenflächen korrigieren",
+    "smoothing": "Zusätzliche kNN-Glättung",
+    "expert": "Experte",
+    "expert_hint": "Schwellen sind Anteile zwischen 0 und 1. Im Normalfall nicht ändern.",
+    "precision": "Rechengenauigkeit",
+    "instance_threshold": "Mindestwert je Objekt",
+    "background": "Schwelle für unbestimmte Pixel",
+    "mask_confidence": "Mindestsicherheit für eine Stimme",
+    "min_share": "Mindestanteil der Siegerklasse",
+    "voxel": "Voxelgrösse in Metern",
+    "interior": "Abstand zum Maskenrand in Pixeln",
+    "language": "Sprache",
+    "language_hint": "Gilt für die ganze App und wird gespeichert."
+  },
+  "log": {
+    "hint": "Live-Protokoll von App und Hintergrundprozess.",
+    "empty": "Noch keine Einträge.",
+    "folder": "Ordner dieser Sitzung"
+  },
+  "error": {
+    "invalid_setting": "Ungültiger Wert bei {name}.",
+    "save": "Speichern ist fehlgeschlagen: {detail}",
+    "worker_gone": "Der Hintergrundprozess läuft nicht mehr.",
+    "worker_alive": "Der Hintergrundprozess liess sich nicht beenden. Bitte im Task-Manager beenden.",
+    "session_gone": "Dieser Lauf ist nicht mehr vorhanden.",
+    "folder": "Der Ordner lässt sich nicht öffnen.",
+    "classes_file": "Die Klassendatei ist fehlerhaft. Bitte auf Standard zurücksetzen.",
+    "no_gpu_info": "Der freie Grafikspeicher lässt sich nicht lesen. Der bisherige Wert bleibt.",
+    "no_safe_batch": "Nur {free} GiB Grafikspeicher frei: kein sicherer Wert gefunden. Bitte andere GPU-Anwendungen schliessen."
+  },
+  "class": {
+    "other": "Übriges",
+    "ground": "Boden",
+    "paved_surface": "Belag",
+    "low_vegetation": "Niedrige Vegetation",
+    "tree": "Baum, hohe Vegetation",
+    "building": "Gebäude",
+    "vehicle": "Fahrzeug",
+    "construction": "Baustelle",
+    "curb": "Randstein",
+    "road_marking": "Markierung",
+    "utility_cover": "Schachtdeckel",
+    "road": "Strasse",
+    "sidewalk": "Trottoir",
+    "construction_machinery": "Baumaschine",
+    "utility_pole": "Mast",
+    "traffic_sign": "Verkehrsschild",
+    "fence": "Zaun",
+    "power_line": "Leitung",
+    "scaffolding": "Gerüst",
+    "construction_material": "Baumaterial",
+    "water": "Wasser",
+    "unclassified": "Nicht klassifiziert"
+  }
+}

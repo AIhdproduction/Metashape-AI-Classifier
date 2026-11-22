@@ -1,0 +1,17 @@
+# FlurSeg's eleven classes are part of the weights: names and order must not change.
+fixed: true
+unknown_code: 1
+unknown_color: "#787878"
+classes:
+  - {name: other, code: 64, color: "#9E9E9E"}
+  - {name: ground, code: 2, color: "#A0522D"}
+  - {name: paved_surface, code: 71, color: "#5C6BC0"} # Cyclone 3DR: Sealed terrain (class 71).
+  - {name: low_vegetation, code: 3, color: "#9CCC65"}
+  - {name: tree, code: 5, color: "#1B5E20"}
+  - {name: building, code: 6, color: "#E53935"}
+  - {name: vehicle, code: 91, color: "#FFEB3B"}
+  # Cyclone uses 151 (Worksite equipment), but Metashape 2.3.1 drops codes 128..255 on import.
+  - {name: construction, code: 67, color: "#FF9800"}
+  - {name: curb, code: 74, color: "#00BCD4"}
+  - {name: road_marking, code: 82, color: "#FFFFFF"}
+  - {name: utility_cover, code: 75, color: "#E040FB"}

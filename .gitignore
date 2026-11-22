@@ -3,6 +3,10 @@ models/*
 *.pt
 *.safetensors
 *.ckpt
+# The user's own SAM 3 classes and app settings, written by the app.
+config/classes.user.yml
+config/user_settings.json
+.nicegui/
 work/
 output/
 cache/

@@ -10,7 +10,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from msam3.cache import LabelCache, atomic_json, json_hash
+from msam3 import backends
+from msam3.cache import LabelCache, atomic_json
 from msam3.camera_model import project_torch
 from msam3.config import Classes, Settings
 from msam3.pointcloud.las_io import write_classified
@@ -28,24 +29,13 @@ from msam3.pointcloud.visibility import ZBuffer
 from msam3.pointcloud.voting import Votes, apply_ground_assist, apply_vegetation_assist
 from msam3.report import write_report
 from msam3.segmentation.mask_filter import interior_labels
-from msam3.segmentation.sam3_backend import BACKEND_VERSION, SAM_REVISION
-from msam3.segmentation.tiling import segment_image
 from msam3.validation import image_path, load_raw_image, read_package, validate_package
 
 LOG = logging.getLogger(__name__)
 
 
 def segmentation_identity(settings: Settings, classes: Classes) -> str:
-    return json_hash(
-        {
-            "sam": settings.sam.model_dump(),
-            "cache": settings.cache.model_dump(),
-            "classes": classes.model_dump(),
-            "dtype": settings.gpu.dtype,
-            "backend": BACKEND_VERSION,
-            "sam_revision": SAM_REVISION,
-        }
-    )
+    return backends.selected(settings).segmentation_identity(settings, classes)
 
 
 def representative_normals(source: Path, indices, transform, batch_size):
@@ -92,8 +82,19 @@ def process_chunk(
     voting_only: bool = False,
     validation: dict | None = None,
     device: str | None = None,
+    model: dict | None = None,
 ) -> dict:
     started = time.perf_counter()
+    segmenter = backends.selected(settings)
+    model = model or segmenter.describe()
+    # The class-dependent part of the settings follows the selected model.
+    settings = segmenter.apply_profile(settings, classes)
+    code_of = {item.name: item.code for item in classes.classes}
+    no_erosion = [
+        index
+        for index, item in enumerate(classes.classes)
+        if item.name in settings.visibility.no_erosion_classes
+    ]
     validation = validation or validate_package(directory, settings)
     metadata, cameras, _ = read_package(directory)
     device = device or settings.gpu.device
@@ -134,13 +135,16 @@ def process_chunk(
         if settings.voting.use_incidence_weight
         else None
     )
-    cache = LabelCache(directory / "cache", segmentation_identity(settings, classes), model_hash)
+    # One folder per model: switching back reuses its images, and the identity still decides.
+    cache = LabelCache(
+        directory / "cache" / segmenter.key, segmentation_identity(settings, classes), model_hash
+    )
     preparation = time.perf_counter() - started
     segmentation_seconds, voting_seconds, images_used = 0.0, 0.0, 0
     backend = None
     for camera_index, camera in enumerate(cameras, start=1):
         # A cropped dense cloud often leaves some registered cameras looking only at
-        # discarded areas.  Skip them before loading an image or invoking SAM.
+        # discarded areas.  Skip them before loading an image or invoking the model.
         # Blocks use conservative frustum culling, so a useful camera is never
         # rejected merely because its projected block corners are imperfect.
         matrix = camera.relative_matrix(cloud.origin_internal, cloud.metres_per_internal)
@@ -172,14 +176,22 @@ def process_chunk(
                 backend = backend_factory()
             image = load_raw_image(camera, settings)
             try:
-                labels, confidence = segment_image(
-                    image, backend, classes, settings.sam, directory / "tile_scores.dat"
+                labels, confidence = segmenter.segment(
+                    backend, image, classes, settings, directory / "tile_scores.dat"
                 )
                 cached = cache.save(str(camera.key), labels, confidence, identity)
             finally:
                 image.close()
             if hasattr(backend, "release_image"):
                 backend.release_image()
+        else:
+            LOG.info(
+                "Chunk %s: camera %d/%d (%s) reused from cache",
+                metadata["label"],
+                camera_index,
+                len(cameras),
+                camera.label,
+            )
         labels, confidence = cached
         if np.any((labels != 255) & (labels >= len(classes.classes))):
             raise ValueError("Cached image contains out-of-range class indices")
@@ -188,6 +200,7 @@ def process_chunk(
             confidence,
             settings.visibility.mask_interior_px,
             settings.visibility.min_mask_confidence,
+            no_erosion,
         )
         segmentation_seconds += time.perf_counter() - image_start
         vote_start = time.perf_counter()
@@ -254,6 +267,7 @@ def process_chunk(
             images_used,
         )
         del zbuffer, depth_map
+    LOG.info("Chunk %s: all cameras processed; post-filter and LAS follow", metadata["label"])
     result, shares = votes.decide()
     result, shares, ground_assist = apply_ground_assist(
         result, shares, votes, ground_hint, settings.ground_assist
@@ -268,6 +282,7 @@ def process_chunk(
         settings.smoothing,
         classes.unknown_code,
         settings.voting.batch_points,
+        {code_of[name] for name in settings.smoothing.protected_classes if name in code_of},
     )
     result = apply_postprocess(
         points,
@@ -284,7 +299,12 @@ def process_chunk(
     )
     output = directory / "classified_internal.las"
     counts = write_classified(
-        directory / "dense.las", output, all_codes, classes, settings.voting.batch_points
+        directory / "dense.las",
+        output,
+        all_codes,
+        classes,
+        settings.voting.batch_points,
+        model["title"],
     )
     timings = {
         "preparation": preparation,
@@ -304,8 +324,16 @@ def process_chunk(
         len(points),
         ground_assist,
         vegetation_assist,
+        model,
     )
-    atomic_json(directory / "stage2_done.json", {"output": str(output), "report": report})
+    atomic_json(
+        directory / "stage2_done.json",
+        {
+            "output": str(output),
+            "report": report,
+            "model_identity": segmenter.run_identity(settings, classes, model_hash),
+        },
+    )
     return {
         "directory": str(directory),
         "classified_las": str(output),

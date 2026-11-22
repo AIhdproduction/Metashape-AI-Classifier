@@ -2,6 +2,7 @@
 # python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
 # CPU tests instead use --index-url https://download.pytorch.org/whl/cpu.
 # Exact direct dependency pins; SAM 3 is installed separately with pip install -e ".[sam]".
+# transformers brings the hf command (huggingface_hub) for the FlurSeg download.
 numpy==1.26.4
 scipy==1.15.3
 pydantic==2.12.5
@@ -11,5 +12,8 @@ laspy==2.5.4
 pyproj==3.7.1
 torch==2.7.1
 torchvision==0.22.1
+transformers==5.22.1
+nicegui==3.17.1
+psutil==7.2.2
 pytest==8.3.5
 ruff==0.11.13

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" width="34" height="34" role="img" aria-label="Metashape AI Classifier">
+  <path d="M3 25 12 6l8 12 11-7-4 17z" fill="none" stroke="#47718a" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M12 6 8.5 27 20 18l7 10" fill="none" stroke="#47718a" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M20 18 31 11 27 28z" fill="#26b7ef" fill-opacity=".22" stroke="#26b7ef" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="3" cy="25" r="2.4" fill="#96aabe"/>
+  <circle cx="12" cy="6" r="2.4" fill="#96aabe"/>
+  <circle cx="8.5" cy="27" r="2.4" fill="#4bc692"/>
+  <circle cx="20" cy="18" r="3" fill="#26b7ef"/>
+  <circle cx="31" cy="11" r="2.4" fill="#26b7ef"/>
+  <circle cx="27" cy="28" r="2.4" fill="#26b7ef"/>
+</svg>

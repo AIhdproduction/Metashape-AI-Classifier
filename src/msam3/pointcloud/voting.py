@@ -53,7 +53,7 @@ class Votes:
 
 
 def apply_ground_assist(labels, shares, votes: Votes, ground_hint, config: GroundAssistConfig):
-    """Use Metashape terrain only for points that SAM left undecided."""
+    """Use Metashape terrain only for points that the model left undecided."""
     if not config.enabled:
         return labels, shares, {"metashape_ground_points": 0, "resolved": {}}
     names = {item.name: (index, item.code) for index, item in enumerate(votes.classes.classes)}
@@ -99,11 +99,11 @@ def apply_ground_assist(labels, shares, votes: Votes, ground_hint, config: Groun
 def apply_vegetation_assist(
     labels, shares, metashape_classes, classes, config: VegetationAssistConfig
 ):
-    """Use existing Metashape low/high vegetation only for SAM-unknown points.
+    """Use existing Metashape low/high vegetation only for points the model left unknown.
 
     The DTM post-filter remains responsible for the final low/high split. This supplies
     vegetation candidates where the image model saw no usable class, without replacing
-    a positive SAM decision.
+    a positive decision of the model.
     """
     report = {"metashape_low_points": 0, "metashape_high_points": 0, "resolved": {}}
     if not config.enabled:

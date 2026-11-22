@@ -9,21 +9,10 @@ import torch.nn.functional as functional
 from PIL import Image
 
 from msam3.config import Classes, GPUConfig, SAMConfig
+from msam3.segmentation.model_files import require_checkpoint
 from msam3.segmentation.segearth_fusion import fuse_prompt
 
 LOG = logging.getLogger(__name__)
-SAM_REVISION = "0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc"
-BACKEND_VERSION = "raw-grounding-v2-batched"
-
-
-def require_checkpoint(path: Path) -> None:
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"SAM 3 checkpoint missing: {path}. Request access at "
-            "https://huggingface.co/facebook/sam3 (access request required), accept Meta's "
-            "SAM License, download the checkpoint and place it at models/sam3.pt "
-            "(or set paths.model). Weights are not included in this repository."
-        )
 
 
 def check_gpu(config: GPUConfig) -> None:

@@ -19,6 +19,7 @@ def write_report(
     voting_points: int,
     ground_assist: dict | None = None,
     vegetation_assist: dict | None = None,
+    model: dict | None = None,
 ):
     total = int(counts.sum())
     report = {
@@ -51,5 +52,7 @@ def write_report(
             "percentage": float(report["unknown_share"] * 100),
         }
     )
+    if model:
+        report["model"] = model
     atomic_json(path, report)
     return report

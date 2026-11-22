@@ -11,12 +11,12 @@ from pathlib import Path
 import laspy
 import numpy as np
 
+from msam3 import backends
 from msam3.cache import atomic_json, file_hash, json_hash
 from msam3.config import Classes, Settings
 from msam3.metashape_runner import run_metashape
 from msam3.pipeline import process_chunk
 from msam3.pointcloud.las_io import merge_class_exports
-from msam3.segmentation.sam3_backend import SAM3Backend, require_checkpoint
 from msam3.validation import validate_package
 
 LOG = logging.getLogger(__name__)
@@ -29,6 +29,19 @@ def project_state(project: Path) -> dict:
         for path in paths
         if path.is_file()
     }
+
+
+def export_identity(project: Path, settings: Settings) -> str:
+    """Identity of a stage 1 export. The model is deliberately absent: both share one export."""
+    return json_hash(
+        {
+            "schema": 1,
+            "project": project_state(project),
+            "chunks": settings.metashape.chunks,
+            "depth_maps": settings.visibility.mode == "depth_maps",
+            "ground_assist": settings.ground_assist.model_dump(),
+        }
+    )
 
 
 def check_project(project: Path) -> None:
@@ -78,10 +91,17 @@ def execute(
     action: str, project: Path, settings: Settings, classes: Classes, voting_only: bool = False
 ) -> dict:
     # The missing-model instruction takes precedence over starting any external application.
-    if action in ("run", "stage2"):
-        require_checkpoint(settings.paths.model)
+    # Only the selected model is checked. Stage 3 hashes it to rule out a stale import.
+    if action in ("run", "stage2", "stage3"):
+        segmenter = backends.selected(settings)
+        segmenter.require_files(settings)
+        if action != "stage3" and not voting_only:
+            segmenter.require_runtime()
     project = project.resolve()
     check_project(project)
+    if action in ("run", "stage2") and not voting_only:
+        # Before the Metashape export, which can take very long, and without loading a model.
+        backends.selected(settings).require_gpu(settings)
     work = job_directory(project, settings)
     work.mkdir(parents=True, exist_ok=True)
     output = settings.paths.output_dir / work.name
@@ -110,21 +130,15 @@ def _execute(
 ):
     stage_runner = stage_runner or run_metashape
     started = time.perf_counter()
-    identity = json_hash(
-        {
-            "schema": 1,
-            "project": project_state(project),
-            "chunks": settings.metashape.chunks,
-            "depth_maps": settings.visibility.mode == "depth_maps",
-            "ground_assist": settings.ground_assist.model_dump(),
-        }
-    )
+    segmenter = backends.selected(settings)
+    identity = export_identity(project, settings)
     job = {
         "schema": 1,
         "project": str(project),
         "work_dir": str(work),
         "output_dir": str(output),
-        "settings": settings.model_dump(mode="json"),
+        "settings": segmenter.job_settings(settings),
+        "model": segmenter.describe(),
         "classes": classes.model_dump(),
         "stage1_identity": identity,
     }
@@ -157,7 +171,7 @@ def _execute(
     if action == "stage1":
         return stage1
     if action in ("run", "validate", "stage2"):
-        # Validate ALL chunks before checking CUDA or constructing the model.
+        # Validate ALL chunks before constructing the model.
         validation = {
             chunk["key"]: validate_package(Path(chunk["directory"]), settings)
             for chunk in stage1["chunks"]
@@ -165,14 +179,24 @@ def _execute(
         atomic_json(work / "validation.json", validation)
         if action == "validate":
             return validation
-        model_hash = file_hash(settings.paths.model)
-        LOG.info("Checkpoint SHA-256: %s", model_hash)
+        weights = segmenter.fingerprint(settings)
+        model_hash = weights.model_hash
+        model_identity = segmenter.run_identity(settings, classes, model_hash)
+        LOG.info("%s weights SHA-256: %s", segmenter.title, weights.info["weights_sha256"])
+        if weights.info.get("weights", "v1") != "v1":
+            LOG.warning("%s: %s", segmenter.title, weights.info["weights"])
+        cameras = [
+            len(json.loads((Path(chunk["directory"]) / "cameras.json").read_text(encoding="utf-8")))
+            for chunk in stage1["chunks"]
+        ]
+        # The progress display reads this line; keep its wording.
+        LOG.info("Segmentation plan: %d chunks, %d cameras", len(cameras), sum(cameras))
         backend = None
 
         def backend_factory():
             nonlocal backend
             if backend is None:
-                backend = SAM3Backend(settings.paths.model, settings.gpu, settings.sam)
+                backend = segmenter.create(settings)
             return backend
 
         inputs = []
@@ -185,36 +209,32 @@ def _execute(
                 backend_factory,
                 voting_only,
                 validation[chunk["key"]],
+                model=weights.info,
             )
             result["report"]["timing_seconds"]["stage1"] = stage1_seconds
+            result["model_identity"] = model_identity
             result["classes_hash"] = json_hash(classes.model_dump())
             result["stage1_identity"] = identity
             result["las_sha256"] = file_hash(Path(result["classified_las"]))
             atomic_json(Path(chunk["directory"]) / "stage2_result.json", result)
             inputs.append(result)
         if action == "stage2":
-            return {"chunks": inputs}
+            return {"chunks": inputs, "model_identity": model_identity}
     else:
+        model_hash = segmenter.fingerprint(settings).model_hash
+        model_identity = segmenter.run_identity(settings, classes, model_hash)
         inputs = []
         for chunk in stage1["chunks"]:
             path = Path(chunk["directory"]) / "stage2_result.json"
             if not path.is_file():
                 raise RuntimeError("Stage 2 result is missing; run msam3 stage2 first")
             inputs.append(json.loads(path.read_text(encoding="utf-8")))
-    job["stage3_inputs"] = prepare_stage3_inputs(inputs, identity, classes)
+    job["stage3_inputs"] = prepare_stage3_inputs(inputs, identity, classes, model_identity)
     atomic_json(job_path, job)
     start = time.perf_counter()
     stage3 = stage_runner(3, job_path, work, settings.metashape)
     # Persist our own project save before final LAS assembly, so disk-full recovery can resume.
-    job["stage1_identity"] = json_hash(
-        {
-            "schema": 1,
-            "project": project_state(project),
-            "chunks": settings.metashape.chunks,
-            "depth_maps": settings.visibility.mode == "depth_maps",
-            "ground_assist": settings.ground_assist.model_dump(),
-        }
-    )
+    job["stage1_identity"] = export_identity(project, settings)
     stage1["stage1_identity"] = job["stage1_identity"]
     atomic_json(stage1_marker, stage1)
     for entry in inputs:
@@ -228,6 +248,7 @@ def _execute(
             classes,
             result["crs_wkt"],
             settings.voting.batch_points,
+            segmenter.title,
         )
         report = next(item["report"] for item in inputs if item["directory"] == result["directory"])
         if int(counts.sum()) != report["point_count"]:
@@ -247,7 +268,9 @@ def _execute(
     return stage3
 
 
-def prepare_stage3_inputs(inputs: list[dict], identity: str, classes: Classes) -> list[dict]:
+def prepare_stage3_inputs(
+    inputs: list[dict], identity: str, classes: Classes, model_identity: dict | None = None
+) -> list[dict]:
     """Verify stage-2 files and add the import contract used by Metashape stage 3."""
     prepared = []
     for source in inputs:
@@ -256,14 +279,22 @@ def prepare_stage3_inputs(inputs: list[dict], identity: str, classes: Classes) -
             raise ValueError("Classes changed since stage 2. Rerun stage2 before importing.")
         if result["stage1_identity"] != identity:
             raise ValueError("Stage 2 results belong to an older stage 1 export; rerun stage2.")
+        if model_identity is not None and result.get("model_identity") != model_identity:
+            raise ValueError(
+                "Model, weights or settings changed since stage 2. Rerun stage2 before importing."
+            )
         if file_hash(Path(result["classified_las"])) != result["las_sha256"]:
             raise ValueError("Classified LAS changed since stage 2; rerun stage2")
         metadata = json.loads(
             (Path(result["directory"]) / "chunk.json").read_text(encoding="utf-8")
         )
-        result["import_id"] = json_hash(
-            {"las": result["las_sha256"], "source": metadata["source_signature"]}
-        )
+        contract = {"las": result["las_sha256"], "source": metadata["source_signature"]}
+        if result.get("model_identity"):
+            # Equal labels of another model still become their own, correctly named asset.
+            contract["model"] = {
+                key: result["model_identity"][key] for key in ("backend", "model_hash")
+            }
+        result["import_id"] = json_hash(contract)
         with laspy.open(result["classified_las"]) as reader:
             # Explicit millimetre precision prevents Metashape's coarse auto quantization.
             result["precision_m"] = min(0.001, float(np.min(reader.header.scales)))

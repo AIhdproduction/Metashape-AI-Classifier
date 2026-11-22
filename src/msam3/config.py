@@ -7,6 +7,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+BackendName = Literal["flurseg", "sam3"]
+ResolutionName = Literal["fast", "balanced", "accurate"]
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 Probability = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 Code = Annotated[int, Field(ge=0, le=255, strict=True)]
@@ -20,7 +22,7 @@ class StrictModel(BaseModel):
 class SemanticClass(StrictModel):
     name: Annotated[str, Field(min_length=1, pattern=r"^[a-z][a-z0-9_]*$")]
     code: Code | None = None
-    prompts: Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1)]
+    prompts: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
     color: HexColor = "#808080"
 
     @model_validator(mode="after")
@@ -34,12 +36,18 @@ class Classes(StrictModel):
     unknown_code: Code = 1
     unknown_color: HexColor = "#808080"
     custom_code_start: Code = 64
+    # A fixed class list comes with the model weights and has no text prompts.
+    fixed: bool = False
     classes: Annotated[list[SemanticClass], Field(min_length=1, max_length=255)]
 
     @model_validator(mode="after")
     def resolve(self):
         names = [c.name for c in self.classes]
         explicit = [c.code for c in self.classes if c.code is not None]
+        if not self.fixed:
+            for cls in self.classes:
+                if not cls.prompts:
+                    raise ValueError(f"Class {cls.name} needs at least one prompt")
         if len(names) != len(set(names)):
             raise ValueError("Class names must be unique")
         if len(explicit) != len(set(explicit)):
@@ -63,14 +71,29 @@ class Classes(StrictModel):
 class MetashapeConfig(StrictModel):
     exe: str = "C:/Program Files/Agisoft/Metashape Pro/metashape.exe"
     chunks: list[str] = Field(default_factory=list)
-    imported_label: str = "SAM3 classified"
+    # None follows the selected model ("FlurSeg classified" / "SAM3 classified").
+    imported_label: str | None = None
     make_default: bool = False
     display_mode: Literal["classification", "class_palette", "image_colors"] = "image_colors"
     offscreen: Literal["auto", "always", "never"] = "auto"
 
 
+class SegmentationConfig(StrictModel):
+    backend: BackendName = "flurseg"
+
+
+class FlurSegConfig(StrictModel):
+    resolution: ResolutionName = "balanced"
+    window_batch_size: Annotated[int, Field(ge=1, le=32)] = 4
+    precision: Literal["fp16", "fp32"] = "fp16"
+    # Scores are normalised over the eleven classes, so both thresholds are class shares.
+    background_threshold: Probability = 0.3
+    min_mask_confidence: Probability = 0.4
+
+
 class PathsConfig(StrictModel):
     model: Path = Path("models/sam3.pt")
+    flurseg_model: Path = Path("models/flurseg/v1")
     work_dir: Path = Path("work")
     output_dir: Path = Path("output")
     image_path_remap: dict[str, str] = Field(default_factory=dict)
@@ -108,6 +131,8 @@ class VisibilityConfig(StrictModel):
     rel_tolerance: Probability = 0.02
     abs_tolerance_m: Annotated[float, Field(ge=0)] = 0.05
     mask_interior_px: Annotated[int, Field(ge=0, le=8)] = 2
+    # Classes in their neighbour's plane that would vanish entirely by mask erosion.
+    no_erosion_classes: list[str] = Field(default_factory=list)
     min_mask_confidence: Probability = 0.5
 
 
@@ -123,7 +148,7 @@ class VotingConfig(StrictModel):
 
 
 class GroundAssistConfig(StrictModel):
-    """Optional Metashape terrain evidence that may resolve otherwise unknown SAM votes."""
+    """Optional Metashape terrain evidence that may resolve otherwise unknown votes."""
 
     enabled: bool = True
     classify_before_export: bool = True
@@ -141,7 +166,7 @@ class GroundAssistConfig(StrictModel):
 
 
 class VegetationAssistConfig(StrictModel):
-    """Use existing Metashape vegetation classes only where SAM has no decision."""
+    """Use existing Metashape vegetation classes only where the model has no decision."""
 
     enabled: bool = True
     source_low_codes: list[Code] = [3]
@@ -161,6 +186,7 @@ class SmoothingConfig(StrictModel):
     enabled: bool = False
     k: Annotated[int, Field(ge=1)] = 8
     max_share_to_change: Probability = 0.6
+    protected_classes: list[str] = Field(default_factory=list)
 
 
 class ClassPostprocessRule(StrictModel):
@@ -179,6 +205,7 @@ class ClusterPostprocessConfig(StrictModel):
     radius_m: Positive = 0.45
     neighbors: Annotated[int, Field(ge=1, le=64)] = 12
     min_same_neighbors: Annotated[int, Field(ge=1, le=64)] = 4
+    min_same_overrides: dict[str, Annotated[int, Field(ge=1, le=64)]] = Field(default_factory=dict)
 
 
 class BuildingPostprocessConfig(StrictModel):
@@ -258,13 +285,15 @@ class RoadPostprocessConfig(StrictModel):
 
 
 class PostprocessConfig(StrictModel):
-    """Conservative geometry cleanup applied after SAM image voting."""
+    """Conservative geometry cleanup applied after image voting."""
 
     enabled: bool = True
     output_subdir: str = "post_sam_filter"
     neighborhood_radius_m: Positive = 0.35
     neighbors: Annotated[int, Field(ge=2, le=64)] = 16
     class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
+    # Never overwritten by a neighbouring class (thin markings, covers, kerbs).
+    protected_classes: list[str] = Field(default_factory=list)
     cluster: ClusterPostprocessConfig = Field(default_factory=ClusterPostprocessConfig)
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
@@ -280,10 +309,12 @@ class DebugConfig(StrictModel):
 
 
 class Settings(StrictModel):
+    segmentation: SegmentationConfig = Field(default_factory=SegmentationConfig)
     metashape: MetashapeConfig = Field(default_factory=MetashapeConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     gpu: GPUConfig = Field(default_factory=GPUConfig)
     sam: SAMConfig = Field(default_factory=SAMConfig)
+    flurseg: FlurSegConfig = Field(default_factory=FlurSegConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
@@ -295,12 +326,22 @@ class Settings(StrictModel):
     debug: DebugConfig = Field(default_factory=DebugConfig)
 
 
+def merge_settings(base: dict, override: dict, replace: tuple[str, ...] = ()) -> dict:
+    """Merge nested settings in place. Keys in ``replace`` are never mixed with their old value."""
+    for key, value in override.items():
+        if key not in replace and isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge_settings(base[key], value, replace)
+        else:
+            base[key] = value
+    return base
+
+
 def load_settings(path: Path | None = None) -> Settings:
     path = path or REPO_ROOT / "config/default.yml"
     with path.open(encoding="utf-8") as stream:
         settings = Settings.model_validate(yaml.safe_load(stream) or {})
     # Paths are relative to the repository, independent of the caller's working directory.
-    for name in ("model", "work_dir", "output_dir"):
+    for name in ("model", "flurseg_model", "work_dir", "output_dir"):
         value = getattr(settings.paths, name)
         setattr(settings.paths, name, (REPO_ROOT / value).resolve())
     return settings

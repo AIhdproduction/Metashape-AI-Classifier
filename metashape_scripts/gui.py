@@ -1,9 +1,11 @@
-"""Direct Metashape launcher using an external progress window."""
+"""Direct Metashape launcher. Options, progress and result live in the app of the venv."""
 
 import json
 import os
 import shutil
 import subprocess
+import sys
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -14,11 +16,29 @@ from metashape_scripts import stage1_export, stage3_import
 from metashape_scripts.common import check_metashape, write_json
 
 ROOT = Path(__file__).resolve().parent.parent
+APP_NAME = "Metashape AI Classifier"
+INSTALL_HINT = (
+    "Bitte install.bat im Repository erneut ausführen (nach jedem git pull) und danach das "
+    "Skript nochmals über Werkzeuge > Skript ausführen (Tools > Run Script) starten."
+)
+POLL_SECONDS = 0.25
+CHECK_SECONDS = 180
+STARTUP_SECONDS = 180  # Until the app's server answers, not until the user presses Start.
+HEARTBEAT_SECONDS = 120  # Without a sign of life from an app that was up.
 _running = False
 
 
+def say(text, stream=None):
+    """Print to Metashape's console. A code page without umlauts must never abort a run."""
+    stream = stream or sys.stdout
+    try:
+        print(text, file=stream)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", "backslashreplace").decode("ascii"), file=stream)
+
+
 class UserCancelled(RuntimeError):
-    """The operator requested cancellation from the independent progress window."""
+    """The operator requested cancellation from the app."""
 
 
 def worker_environment():
@@ -27,40 +47,185 @@ def worker_environment():
     environment.pop("PYTHONPATH", None)
     environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONUNBUFFERED"] = "1"
+    # The logs are read as UTF-8, and camera labels may contain umlauts.
+    environment["PYTHONIOENCODING"] = "utf-8"
+    # The models are local files. Nothing is downloaded or reported at run time.
+    environment["HF_HUB_OFFLINE"] = "1"
+    environment["TRANSFORMERS_OFFLINE"] = "1"
+    environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
     return environment
 
 
-def launch_progress(session):
-    """Open the independent, topmost status window before any lengthy Metashape work."""
-    progress_python = ROOT / ".venv/Scripts/pythonw.exe"
-    if not progress_python.is_file():
-        progress_python = ROOT / ".venv/Scripts/python.exe"
-    subprocess.Popen(
-        [str(progress_python), "-m", "msam3.gui_progress", "--session", str(session)],
-        cwd=str(ROOT),
-        env=worker_environment(),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+def log_tail(path, count=12):
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-count:])
+
+
+def stop_process(process):
+    """End a child of this launcher. The venv's launcher exe takes its Python process along."""
+    try:
+        process.kill()
+        process.wait(timeout=10)
+        return True
+    except (OSError, subprocess.SubprocessError) as error:
+        say(APP_NAME + ": Ein Hintergrundprozess lässt sich nicht beenden: " + str(error))
+        return False
+
+
+def check_installation(session):
+    """After git pull an old .venv lacks packages: say so instead of failing without a window."""
+    log_path = session / "ui.log"
+    process = None
+    try:
+        with log_path.open("a", encoding="utf-8") as stream:
+            process = subprocess.Popen(
+                [str(ROOT / ".venv/Scripts/python.exe"), "-m", "msam3.install_check"],
+                cwd=str(ROOT),
+                env=worker_environment(),
+                stdin=subprocess.DEVNULL,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            returncode = process.wait(timeout=CHECK_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        stop_process(process)
+        raise RuntimeError(
+            "Die Prüfung der Installation hat nach "
+            + str(CHECK_SECONDS)
+            + " Sekunden nicht geantwortet und wurde beendet. "
+            + INSTALL_HINT
+            + "\n\n"
+            + log_tail(log_path)
+            + "\nProtokoll: "
+            + str(log_path)
+        ) from error
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(
+            "Die Installation lässt sich nicht prüfen ("
+            + str(error)
+            + "). "
+            + INSTALL_HINT
+            + "\nProtokoll: "
+            + str(log_path)
+        ) from error
+    if returncode:
+        raise RuntimeError(
+            "Die Installation in .venv ist nicht aktuell. "
+            + INSTALL_HINT
+            + "\n\n"
+            + log_tail(log_path)
+            + "\nProtokoll: "
+            + str(log_path)
+        )
+
+
+def app_failure(reason, log_path):
+    return RuntimeError(
+        "Das Fenster von "
+        + APP_NAME
+        + " "
+        + reason
+        + " "
+        + INSTALL_HINT
+        + "\n\n"
+        + log_tail(log_path)
+        + "\nProtokoll: "
+        + str(log_path)
     )
+
+
+def modified(path):
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def launch_options(session):
-    """Show the independent launch window and wait for its explicit Start choice."""
-    options_python = ROOT / ".venv/Scripts/pythonw.exe"
-    if not options_python.is_file():
-        options_python = ROOT / ".venv/Scripts/python.exe"
-    process = subprocess.Popen(
-        [str(options_python), "-m", "msam3.gui_options", "--session", str(session)],
-        cwd=str(ROOT),
-        env=worker_environment(),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    return process.wait() == 0 and (session / "options.json").is_file()
+    """Open the app and return as soon as Start wrote options.json; the app keeps running.
+
+    Returns False when the user cancelled. Raises when the app ended without a choice, did not
+    come up in time (no ui.json), or came up and then stopped touching ui_alive. An app that is
+    alive may wait for the user as long as it likes.
+    """
+    app_python = ROOT / ".venv/Scripts/pythonw.exe"
+    if not app_python.is_file():
+        app_python = ROOT / ".venv/Scripts/python.exe"
+    log_path = session / "ui.log"
+    with log_path.open("a", encoding="utf-8") as stream:
+        process = subprocess.Popen(
+            [str(app_python), "-m", "msam3.gui_options", "--session", str(session)],
+            cwd=str(ROOT),
+            env=worker_environment(),
+            stdin=subprocess.DEVNULL,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    failure = None
+    app_up = False
+    beat = None
+    silent = 0.0
+    last = time.monotonic()
+    while True:
+        # Read the exit state first: the app may write its choice just before it ends.
+        ended = process.poll() is not None
+        if (session / "options.json").is_file():
+            return True
+        if (session / "options_cancelled.json").is_file():
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                stop_process(process)
+            return False
+        if failure:
+            raise app_failure(failure, log_path)
+        if ended:
+            raise app_failure(
+                "wurde unerwartet beendet oder konnte nicht geöffnet werden.", log_path
+            )
+        now = time.monotonic()
+        # Capped, so that a sleeping PC does not count as a silent app.
+        silent += min(now - last, 2.0)
+        last = now
+        if not app_up and (session / "ui.json").is_file():
+            app_up, silent = True, 0.0
+        if app_up:
+            current = modified(session / "ui_alive")
+            if current is not None and current != beat:
+                beat, silent = current, 0.0
+            if silent >= HEARTBEAT_SECONDS:
+                failure = "reagiert nicht mehr und wurde beendet."
+        elif silent >= STARTUP_SECONDS:
+            failure = "ist nicht rechtzeitig gestartet und wurde beendet."
+        if failure:
+            stop_process(process)
+            continue  # A choice that was written just now still counts.
+        time.sleep(POLL_SECONDS)
+
+
+def selected_title(session):
+    """The model's name for messages: from job.json, or from the app's choice before that."""
+    for name in ("job.json", "options.json"):
+        try:
+            value = json.loads((session / name).read_text(encoding="utf-8"))
+            return value["model"]["title"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return APP_NAME
+
+
+def remove_worker_file(path):
+    for _ in range(40):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:  # The app reads the file at this moment.
+            time.sleep(0.05)
 
 
 def enabled_image_sizes(document):
@@ -80,10 +245,15 @@ def enabled_image_sizes(document):
     return sizes
 
 
-def run_worker(action, session):
-    """Run CUDA work in the installed venv and retain a concise error log."""
+def raise_if_cancelled(session):
     if (session / "cancel_requested.json").is_file():
         raise UserCancelled("Vom Benutzer abgebrochen.")
+
+
+def run_worker(action, session, cancellable=True):
+    """Run CUDA work in the installed venv and retain a concise error log."""
+    if cancellable:
+        raise_if_cancelled(session)
     log_path = session / (action + ".log")
     worker_path = session / "worker.json"
     environment = worker_environment()
@@ -105,18 +275,24 @@ def run_worker(action, session):
             stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        write_json(worker_path, {"pid": process.pid, "action": action})
+        returncode = None
         try:
+            write_json(worker_path, {"pid": process.pid, "action": action})
             # Covers the brief race where the operator clicks cancel while this worker starts.
-            if (session / "cancel_requested.json").is_file():
+            if cancellable and (session / "cancel_requested.json").is_file():
                 process.terminate()
             returncode = process.wait()
         finally:
-            worker_path.unlink(missing_ok=True)
+            # An interrupted script must not leave the GPU busy. If the worker cannot be ended,
+            # worker.json stays, so that the app can offer Stop.
+            if returncode is not None or stop_process(process):
+                remove_worker_file(worker_path)
     write_json(session / (action + "_status.json"), {"returncode": returncode})
+    cancelled = cancellable and (session / "cancel_requested.json").is_file()
+    # A cancel that arrives as the classification ends must still prevent the import.
+    if cancelled and (returncode or action == "stage2"):
+        raise UserCancelled("Vom Benutzer abgebrochen.")
     if returncode:
-        if (session / "cancel_requested.json").is_file():
-            raise UserCancelled("Vom Benutzer abgebrochen.")
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         raise RuntimeError("\n".join(lines[-18:]) or "Der Hintergrundprozess ist fehlgeschlagen.")
 
@@ -148,12 +324,14 @@ def restore_source_point_clouds(document):
         selected = getattr(chunk, "point_cloud", None)
         source = stage1_export.source_point_cloud(chunk)
         if source is None:
-            print("SAM 3: Keine verwendbare Fotopunktwolke in " + chunk.label + " gefunden.")
+            say(APP_NAME + ": Keine verwendbare Fotopunktwolke in " + chunk.label + " gefunden.")
             continue
         if selected is not source:
             chunk.point_cloud = source
-            print(
-                "SAM 3: Urspruengliche Fotopunktwolke wird als Eingabe verwendet: " + source.label
+            say(
+                APP_NAME
+                + ": Die ursprüngliche Fotopunktwolke wird als Eingabe verwendet: "
+                + source.label
             )
 
 
@@ -163,21 +341,35 @@ def start():
         return
     _running = True
     session = None
+    title = APP_NAME
+    phase = None
+    imported = False
+    timeline = []
+
+    def set_phase(name, **values):
+        nonlocal phase
+        timeline.append({"phase": name, "at": time.time()})
+        write_json(
+            session / "launcher_status.json", dict(values, phase=name, timeline=list(timeline))
+        )
+        phase = name
+
     try:
         check_metashape()
         document = Metashape.app.document
         if not document.path or not Path(document.path).is_file():
             raise RuntimeError("Bitte zuerst das Projekt als .psx oder .psz speichern.")
         if document.read_only:
-            raise RuntimeError("Das Projekt ist schreibgeschuetzt. Bitte schreibbar oeffnen.")
+            raise RuntimeError("Das Projekt ist schreibgeschützt. Bitte schreibbar öffnen.")
         if not (ROOT / ".venv/Scripts/python.exe").is_file():
-            raise RuntimeError("Bitte zuerst install.bat im Repository ausfuehren.")
+            raise RuntimeError("Bitte zuerst install.bat im Repository ausführen.")
         if not document.chunks:
-            raise RuntimeError("Das Projekt enthaelt keine Chunks.")
-        restore_source_point_clouds(document)
-        document.save()
+            raise RuntimeError("Das Projekt enthält keine Chunks.")
         session = ROOT / "work" / "gui-sessions" / uuid.uuid4().hex
         session.mkdir(parents=True)
+        check_installation(session)
+        restore_source_point_clouds(document)
+        document.save()
         write_json(
             session / "session.json",
             {
@@ -191,33 +383,42 @@ def start():
                     and getattr(camera, "photo", None) is not None
                 ),
                 "image_sizes": enabled_image_sizes(document),
+                "created_at": time.time(),
+                # The app notices when Metashape is gone and does not wait for it forever.
+                "launcher_pid": os.getpid(),
             },
         )
         if not launch_options(session):
-            print("SAM 3: Start im Einstellungsfenster abgebrochen.")
+            say(APP_NAME + ": Start im Fenster abgebrochen.")
             shutil.rmtree(session, ignore_errors=True)
+            phase = "cancelled"
             return
-        write_json(session / "launcher_status.json", {"phase": "prepare"})
-        launch_progress(session)
+        title = selected_title(session)
+        set_phase("prepare")
 
-        print("SAM 3: Konfiguration wird vorbereitet ...")
+        say(title + ": Konfiguration wird vorbereitet ...")
         run_worker("prepare", session)
         job = json.loads((session / "job.json").read_text(encoding="utf-8"))
+        title = selected_title(session)
 
-        write_json(session / "launcher_status.json", {"phase": "export"})
-        print("SAM 3: Punktwolke und Kameras werden aus Metashape exportiert ...")
+        raise_if_cancelled(session)
+        set_phase("export")
+        say(title + ": Punktwolke und Kameras werden aus Metashape exportiert ...")
+        # Again: the app may have read the phase "prepare" a moment before it wrote the marker.
+        raise_if_cancelled(session)
         stage1_export.main(job, document=document)
         write_json(session / "job.json", job)
         Metashape.app.update()
 
-        write_json(session / "launcher_status.json", {"phase": "classify"})
-        print(
-            "SAM 3: Geometriepruefung und Bildklassifikation laufen. Bitte Metashape offen lassen."
+        set_phase("classify")
+        say(
+            title
+            + ": Geometrieprüfung und Bildklassifikation laufen. Bitte Metashape offen lassen."
         )
         run_worker("stage2", session)
 
-        write_json(session / "launcher_status.json", {"phase": "import"})
-        print("SAM 3: Klassifizierte Punktwolke wird importiert ...")
+        set_phase("import")
+        say(title + ": Klassifizierte Punktwolke wird importiert ...")
         job = json.loads((session / "job.json").read_text(encoding="utf-8"))
         defaults = {chunk.key: chunk.point_cloud for chunk in document.chunks}
         try:
@@ -228,28 +429,50 @@ def start():
                     chunk.point_cloud = defaults[chunk.key]
             Metashape.app.update()
             raise
+        imported = True
         result = json.loads(
             (Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8")
         )
-        run_worker("finalize", session)
-        select_classified_asset(document, result, job["settings"]["metashape"]["display_mode"])
-        write_json(session / "launcher_status.json", {"phase": "complete"})
-        Metashape.app.messageBox(
-            "SAM 3 ist fertig. Die neue Punktwolke 'SAM3 classified' "
-            "zeigt die Originalfarben aus den Fotos."
-        )
+        run_worker("finalize", session, cancellable=False)
+        settings = job["settings"]["metashape"]
+        select_classified_asset(document, result, settings["display_mode"])
+        set_phase("complete")
+        message = title + " ist fertig. Die neue Punktwolke '" + settings["imported_label"] + "'"
+        if settings["display_mode"] == "image_colors":
+            message += " zeigt die Originalfarben aus den Fotos."
+        else:
+            message += " zeigt die Klassen."
+        Metashape.app.messageBox(message)
     except UserCancelled:
         if session is not None:
-            write_json(session / "launcher_status.json", {"phase": "cancelled"})
+            set_phase("cancelled")
         Metashape.app.messageBox(
-            "SAM 3 wurde abgebrochen. Es wurde keine klassifizierte Punktwolke importiert."
+            title + " wurde abgebrochen. Es wurde keine klassifizierte Punktwolke importiert."
         )
     except Exception as error:
-        if session is not None:
-            write_json(session / "launcher_status.json", {"phase": "error", "message": str(error)})
-        traceback.print_exc()
-        Metashape.app.messageBox(
-            "SAM 3 wurde beendet, ohne das Projekt zu speichern:\n" + str(error)
-        )
+        # Also when writing the status is what failed, the user must still see the message.
+        say(traceback.format_exc(), sys.stderr)
+        try:
+            if session is not None:
+                set_phase("error", message=str(error))
+        except OSError:
+            say(traceback.format_exc(), sys.stderr)
+        if imported:
+            reason = (
+                " konnte den Abschluss nicht beenden. Die klassifizierte Punktwolke ist bereits "
+                "importiert und gespeichert:\n"
+            )
+        elif any(entry["phase"] == "import" for entry in timeline):
+            # Metashape may already show the new cloud, but nothing of it was saved.
+            reason = " wurde beim Import beendet, ohne das Projekt zu speichern:\n"
+        else:
+            reason = " wurde beendet, ohne eine Klassifikation zu importieren:\n"
+        Metashape.app.messageBox(title + reason + str(error))
     finally:
         _running = False
+        if session is not None and phase not in ("complete", "cancelled", "error"):
+            # The script itself was interrupted; the app must not wait for it.
+            try:
+                set_phase("error", message="Das Skript in Metashape wurde unterbrochen.")
+            except OSError:
+                say(traceback.format_exc(), sys.stderr)

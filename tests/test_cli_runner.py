@@ -13,13 +13,14 @@ from msam3.metashape_runner import run_metashape
 
 
 def test_classes_cli(capsys):
-    assert main(["classes"]) == 0
+    assert main(["classes", "--model", "sam3"]) == 0
     output = capsys.readouterr().out
     assert "sidewalk" in output and "73" in output and "110" in output
 
 
 def test_missing_checkpoint_before_metashape(tmp_path):
     settings = Settings()
+    settings.segmentation.backend = "sam3"
     settings.paths.model = tmp_path / "missing.pt"
     with pytest.raises(FileNotFoundError, match="huggingface.co/facebook/sam3"):
         execute("run", tmp_path / "missing.psx", settings, load_classes())

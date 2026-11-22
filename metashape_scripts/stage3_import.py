@@ -95,7 +95,7 @@ def main(job, document=None, progress=None):
             asset = added[0]
             asset.meta["msam3.import_id"] = entry["import_id"]
         # The GUI selects this asset for display. Retain the exact source so a later run
-        # cannot accidentally classify a prior SAM3 result instead of the photo cloud.
+        # cannot accidentally classify a prior result instead of the photo cloud.
         asset.meta["msam3.source_point_cloud_key"] = str(original.key)
         actual = {int(k): int(v) for k, v in asset.point_count_by_class.items() if v}
         if actual != expected or asset.point_count != sum(expected.values()):
@@ -120,7 +120,7 @@ def main(job, document=None, progress=None):
             path = parts_dir / ("class-" + str(code) + ".las")
             export_cloud(chunk, path, chunk.crs, asset.key, classes=[code], progress=progress)
             parts.append({"code": code, "count": count, "path": str(path)})
-        write_legends(parts_dir, job["classes"])
+        write_legends(parts_dir, job["classes"], job.get("model", {}).get("title"))
         output = final_las_path(job, chunk, chunk_count)
         results.append(
             {

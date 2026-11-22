@@ -8,6 +8,9 @@
 - [Agisoft headless scripting instructions](https://agisoft.freshdesk.com/support/solutions/articles/31000133141-how-to-run-the-script-in-headless-mode-from-the-command-line).
 - [SegEarth-OV3 paper](https://arxiv.org/abs/2512.08730) and
   [reference segmentor](https://github.com/earth-insights/SegEarth-OV-3/blob/main/segearthov3_segmentor.py).
+- [FlurSeg model card](https://huggingface.co/AIhdproduction/Flurseg) (revision
+  `5df53dbbf721778f1ecd4903369e9465926ae2fd`), [EoMT](https://github.com/tue-mps/eomt) and
+  [Transformers EoMT-DINOv3](https://huggingface.co/docs/transformers/model_doc/eomt_dinov3).
 - [SAM 3 model builder](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/sam3/model_builder.py),
   [processor](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/sam3/model/sam3_image_processor.py),
   [image model](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/sam3/model/sam3_image.py),
@@ -63,7 +66,60 @@ The transformed samples must lie inside the exported LAS bounds, with a two-quan
 boundary tolerance. Their exact median nearest distance to the full dense cloud must be at
 most 0.10 m. A temporary cKDTree for each streamed LAS block is queried for every sample;
 minimum distances are accumulated across blocks, avoiding a full dense-cloud tree in RAM.
-Every selected chunk passes this gate before CUDA work begins.
+Every selected chunk passes this gate before any model is loaded.
+
+That CUDA exists is checked much earlier, without loading a model: by the worker's `prepare`
+and by `run` and `stage2` of the CLI, so a PC without CUDA fails before the long export. The app
+process never queries CUDA.
+
+## Model selection
+
+`msam3.backends` is the one registry that the Metashape worker, the CLI driver, the pipeline and
+the app use. For each model it supplies the file and package check, the weights hash, the cache
+and run identity, the class set, the post-filter profile and the backend. `segmentation.backend`
+or `--model` selects it; FlurSeg is the default.
+
+Stage 1 does not depend on the model. Its identity holds only the project, chunks, depth-map
+choice and the ground-assist settings of `default.yml`, so both models share an export. The
+class-dependent settings of FlurSeg are applied later, inside stage 2. Everything after the
+export records and checks the model.
+
+## FlurSeg adapter
+
+FlurSeg v1 is `EomtDinov3ForUniversalSegmentation` (image size 768, 100 queries), trained with
+Transformers 5.22.1. It is loaded with `local_files_only=True`, without remote code and only from
+safetensors. Missing, unexpected or mismatched keys are errors, so a wrong file cannot leave
+randomly initialised layers. `id2label` must contain the eleven names in their trained order.
+Production requires CUDA; only tests construct the backend with a CPU model.
+
+Photos are limited by their long side (fast 3200, balanced 4000, accurate original) with
+bilinear, antialiased reduction, and are never enlarged. RGB is divided by 255 and normalised
+with the preprocessor's ImageNet mean and standard deviation. Windows are 768 pixels with stride
+384; the last window is aligned to the image edge. Missing pixels of small images are zero after
+normalisation, as in training.
+
+Per window the scores are `einsum("qc,qhw->chw", class_logits.softmax(-1)[..., :-1],
+mask_logits.sigmoid())` at native mask resolution, then bilinearly upsampled to the window,
+multiplied by a Hann window plus 1e-6 and accumulated. The confidence is the winner's share of
+the eleven accumulated scores. Below `flurseg.background_threshold` (0.3) a pixel is 255.
+
+A full score image of a 45 MP photo would need about 2 GB of VRAM. Instead the device keeps a
+band of one window height × image width × 11. After each row of windows the rows that no later
+window can touch are decided on the device, and only labels and confidence go to the CPU; then
+the band moves down. A test compares this with the full-buffer result.
+
+Inference uses float16 autocast by default (`flurseg.precision`), scores float32. On CUDA out of
+memory the window batch is halved and the windows are retried; at one window the run stops with
+a clear error. The batch is not part of the cache identity.
+
+The exported v1 weights keep a mask-annealing probability of 1e-4 in the last block. Transformers
+then rarely masks a query at random, as in the owner's reference code, so two fresh inferences can
+differ in a few pixels. Cached labels are stable.
+
+Thresholds: on the test tile a normalised winner share of 0.5 rejected up to 16 % of a small
+class's pixels, while 0.4 rejected at most 6 % (markings, kerbs and covers were not in it). So
+FlurSeg votes from 0.4 (`flurseg.min_mask_confidence`), the label threshold that SAMcloud uses.
+`voting.min_share` stays 0.4 because it is a share of the accumulated votes, not a model score.
 
 ## SAM 3 raw-output adapter
 
@@ -96,7 +152,7 @@ averages overlaps, so this is a documented task-specific difference. Per-class i
 use a CPU disk mapping, while instance resizing is sequential to avoid hundreds of full-size
 GPU masks. All inference uses `torch.inference_mode` and bf16/fp16 CUDA autocast. Prompts are
 batched in groups of four by default (`sam.prompt_batch_size`); set this to one to reduce
-memory use. Batched grounding and all four raw output shapes were checked on the local
+memory use; the shipped default.yml uses eight. Batched grounding and all four raw output shapes were checked on the local
 checkpoint with a real 1008-pixel drone-image tile on an RTX 4090. CUDA cache is released
 between newly segmented images.
 
@@ -132,7 +188,7 @@ Repeated observations therefore add confidence to the same class. Optional kNN s
 when neighbours have a strict majority. A chunked cKDTree query propagates the resulting
 codes to every original point, preserving source point order and attributes in stage 2.
 
-## Post-SAM geometry filter
+## Post-filter
 
 After voting, the enabled `postprocess` configuration applies an NPI-style neighbourhood filter
 to the representative cloud. Per-class rules remove low-confidence isolated points and fill only
@@ -142,14 +198,45 @@ labelled ground to building only when it is horizontally close to several buildi
 one metre below it, which protects flat roofs. A report is written below each chunk as
 `post_sam_filter/postprocess_report.json` before labels are propagated back to the full cloud.
 
+### FlurSeg profile
+
+The class names and codes in `default.yml` are those of SAM 3. `config/profile.flurseg.yml`
+replaces them while FlurSeg is selected:
+
+- rules for all eleven classes; `paved_surface` (71) takes the place of road;
+- ground assist chooses between `ground` and `paved_surface`; vegetation assist is unchanged;
+- trusted DTM codes are 2, 71, 82, 75 and 74;
+- planar filling uses ground, paved surface and building.
+
+`curb`, `road_marking` and `utility_cover` are thin or small and lie in the road plane. Four
+protections keep the road from absorbing them: their masks are not eroded before voting (two
+pixels on each side would remove a whole marking); road repair and hole filling never overwrite
+them; the cluster filter needs two same-class neighbours for them instead of four; kNN smoothing
+never changes them. A single marking point without neighbours is still removed and may then be
+filled as pavement.
+
+### SAM 3 user classes
+
+`config/classes.user.yml` stores the edits as a difference to `config/classes.yml`. A step whose
+class is switched off is skipped, and so are rules for missing classes. Own classes without a
+rule get the rule of a small object (2 same neighbours, fill from 5 at 70%). Without user edits
+no setting differs from the SAM-only version. The ground classification before export still
+runs when the ground class is switched off; only the assist after voting is then inactive.
+
 ## Cache and stage integrity
 
 Each camera has an atomic PNG label/confidence pair and a JSON sidecar written last. The
-sidecar records model SHA-256, segmentation/classes hash, image path, size, modification time,
+sidecar records the weights hash (for FlurSeg also both JSON files), a hash of backend, backend
+version, model options and classes, image path, size, modification time,
 dimensions, orientation and PNG checksums. Images are cached at half raw resolution by
 default. Both arrays use identical nearest-neighbour resampling; confidence is not blended
 across labels. Corrupt, incomplete or stale caches are recomputed, or rejected in voting-only
-mode. Voting settings do not enter the segmentation hash.
+mode. Voting settings do not enter the segmentation hash. Each model has its own cache folder.
+
+Stage 2 records backend, weights hash, segmentation identity and a hash of the result-affecting
+visibility, voting, assist, smoothing and post-filter settings. Stage 3 compares all of it, and
+the classes, before an import. The import ID contains backend and weights, so identical labels
+of two models still become two correctly named assets.
 
 The job file contains resolved settings and paths. Stage 1 reuse additionally requires a
 matching saved-project fingerprint and all exported package files. Stage 3 checks the source
@@ -158,29 +245,64 @@ lock prevents overlapping msam3 processes. Metashape lock files are never remove
 Subprocess success requires both zero exit status and a fresh completion marker. Logs are
 captured and diagnostic tails included on failure.
 
+### Embedded Python versions
+
+The scripts in `metashape_scripts/` support Python 3.9 and 3.12, because the supported Metashape
+versions differ. Agisoft's changelog documents Python 3.12 from 2.3.0 build 21378 (preview).
+It lists no Python update between 2.1 and 2.3, so 3.9 for 2.2.x is an inference from that and
+from the 3.9.13 observed in an installed 2.1.0. No 2.2.x interpreter has been observed.
+
 ### Metashape GUI launcher
 
 `start_in_metashape.py` is a second entry point for users who prefer **Tools → Run Script**.
 It deliberately does not use a second Metashape process or a custom Qt event loop. The open GUI
 document saves once, runs the existing stage-1 exporter against that document, waits while a
 separate `.venv` Python process performs stage 2 only, then runs stage 3 against the same open
-document. A separate topmost Windows progress window displays the image count, percentage,
-elapsed time and estimate of remaining time while the GPU is working. The worker never imports
-Metashape and never opens the project. This prevents project-lock contention and avoids nested Qt
-loops in Metashape's embedded interpreter. The GUI script selects the verified imported asset and
-uses its configured display mode after stage 3. The default `class_palette` mode shows RGB values
-from `config/classes.yml` in `PointCloudViewColor`; `classification` retains Metashape's built-in
-class-colour view.
+document. The worker never imports Metashape and never opens the project. This prevents
+project-lock contention and avoids nested Qt loops in Metashape's embedded interpreter. The
+script selects the verified imported asset and uses its configured display mode after stage 3.
+The default `image_colors` mode shows the photo colours; `classification` uses Metashape's
+built-in class-colour view.
 
-The status window offers **Abbrechen** while the independent preparation or GPU-classification
-worker is running. It terminates that worker, leaves the original point cloud selected and imports
+Options, progress and result are one NiceGUI app in a separate process. The launcher starts
+`msam3.gui_options --session <dir>` and continues as soon as that process has written
+`options.json`; the app keeps running. All communication is by files in the session:
+
+| File | Writer | Meaning |
+|---|---|---|
+| `session.json` | launcher | project, image sizes, PID of Metashape |
+| `options.json` | app | the choice at Start, with the class snapshot for SAM 3 |
+| `options_cancelled.json` | app | cancelled before Start |
+| `launcher_status.json` | launcher | phase and the time of each phase |
+| `job.json` | worker | settings, model and classes of the run |
+| `worker.json`, `<action>_status.json` | launcher | running and finished worker |
+| `cancel_requested.json` | app | cancel request |
+| `finalize_done.json` | worker | outputs and class counts |
+| `ui.json` | app | local link with the session token; its existence means the app is up |
+| `ui_alive` | app | touched every second while monitor and event loop respond |
+| `ui.log`, `prepare.log`, `stage2.log`, `finalize.log` | processes | logs |
+
+Before the app starts, `msam3.install_check` detects a `.venv` that is older than the checkout.
+If the app ends without a choice, the launcher reports the end of `ui.log` instead of waiting.
+It also ends and reports an app that has no `ui.json` after 180 seconds, or whose `ui_alive`
+stands still for 120 seconds before Start. Time in which the PC sleeps is not counted, and an app
+that is alive may wait for the user without limit. The install check is ended after 180 seconds.
+
+A cancel request is checked again immediately before the export. An interrupted launcher ends
+its worker. If Metashape itself died, the app offers to stop the worker, but only for a running
+process whose command line names `msam3.gui_worker` and this session.
+The app ends itself when no window connects within 120 seconds, when the window is closed
+before Start, or after the final state once the window is closed (after two minutes if nobody
+saw that state). During a run it never ends or cancels because a socket was lost.
+
+The app offers **Abbrechen** while the independent preparation or classification worker is
+running. It terminates that worker, leaves the original point cloud selected and imports
 no partial asset. A successful one-click run writes the lossless LAS file beside the saved project
 as `export/punktwolke_class.las`, then imports the same classification into Metashape. Temporary
 work data remains in the repository work directory, rather than beside the project.
 
-Each semantic class and the unknown class has a `#RRGGBB` `color` in `config/classes.yml`. Those
-values are written into the LAS RGB dimensions during classification and final class-partition
-assembly, so the same palette is present in the standalone LAS and in the imported asset.
+Each semantic class and the unknown class has a `#RRGGBB` `color` in its class file. These are
+reference colours for the legends and the app. The LAS keeps the original photo RGB.
 
 ## Metashape calls and attributes used
 
@@ -243,8 +365,11 @@ These checks are specific to the real dataset, installed build and licensed mode
    without understanding its cause.
 2. On a non-WGS datum or vertical-geoid project, verify the exported ECEF samples and final
    project-CRS coordinates against control points. Check geoid availability in headless mode.
-3. Check semantic/instance/presence tensor shapes and probabilities with the authorized local
-   checkpoint; run a representative real image and inspect labels at tile seams and thin objects.
+3. SAM 3: check semantic/instance/presence tensor shapes and probabilities with the authorized
+   local checkpoint; run a representative real image and inspect labels at tile seams and thin
+   objects. FlurSeg: confirm in `stage2.log` that no invalid-score or batch warning appears with
+   torch 2.7.1+cu128 and fp16, then inspect markings, kerbs and covers in the point cloud and
+   compare the profiles balanced and accurate.
 4. Reopen the saved project, verify the original cloud remains, inspect codes 64–72 in
    Classification view, and confirm which custom names the installed GUI displays.
 5. Compare final LAS point/class counts with the stage-2 report in independent LAS software.
@@ -252,8 +377,10 @@ These checks are specific to the real dataset, installed build and licensed mode
 6. If retained depth maps are enabled, compare calibrated depth sampling on known visible and
    occluded points. If incidence weighting is enabled, verify the exported normal dimension
    names and direction convention. These optional paths need dataset-specific evidence.
-7. Interrupt a real multi-image job and resume; verify only unfinished images invoke SAM 3.
+7. Interrupt a real multi-image job and resume; verify only unfinished images invoke the model.
    Benchmark RAM, disk, GPU use and throughput before a 100-million-point production run.
+8. With the app: check that the window opens from Metashape, that Metashape continues after
+   Start, and that a second run in the same Metashape works and starts from the photo cloud.
 
 The automated synthetic suite verifies the mathematical pipeline and >95% known-label
 recovery. It does not establish semantic accuracy for a particular survey site.

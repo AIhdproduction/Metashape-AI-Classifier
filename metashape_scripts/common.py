@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 
 import Metashape
@@ -18,7 +19,15 @@ def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False), encoding="utf-8")
-    temporary.replace(path)
+    # The app reads these files every second; Windows refuses a replace during such a read.
+    for attempt in range(60):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == 59:
+                raise
+            time.sleep(0.05)
 
 
 def read_job():
@@ -137,7 +146,7 @@ def export_cloud(chunk, path, crs, key, classes=None, progress=None):
         raise RuntimeError("Metashape did not create the LAS export: " + str(path))
 
 
-def write_legends(directory, classes):
+def write_legends(directory, classes, model=None):
     rows = [
         {
             "name": "Unclassified",
@@ -147,7 +156,8 @@ def write_legends(directory, classes):
         }
     ]
     rows.extend(classes["classes"])
-    write_json(Path(directory) / "class_legend.json", rows)
+    named = [dict(row, model=model) for row in rows] if model else rows
+    write_json(Path(directory) / "class_legend.json", named)
     with (Path(directory) / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(
             stream, fieldnames=["name", "code", "color", "prompts"], delimiter=";"

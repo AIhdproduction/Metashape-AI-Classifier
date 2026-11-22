@@ -1,0 +1,45 @@
+# Class-dependent settings for FlurSeg. They replace the same keys of default.yml at run time,
+# only while FlurSeg is selected. Switches and all other thresholds stay in default.yml.
+visibility:
+  # Markings, kerbs and covers are only a few pixels wide and share the road's depth.
+  # Eroding their masks would leave no vote, and road repair would paint over them.
+  no_erosion_classes: [curb, road_marking, utility_cover]
+ground_assist:
+  ground_like_classes: [ground, paved_surface]
+  fallback_class: ground
+vegetation_assist:
+  low_vegetation_class: low_vegetation
+  high_vegetation_class: tree
+smoothing:
+  protected_classes: [curb, road_marking, utility_cover]
+postprocess:
+  protected_classes: [curb, road_marking, utility_cover]
+  class_rules:
+    other: {min_same_neighbors: 3, fill_neighbors: 8, fill_share: 0.8, max_replaced_confidence: 0.45}
+    ground: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.75, max_replaced_confidence: 0.55}
+    paved_surface: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.55}
+    low_vegetation: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.75, max_replaced_confidence: 0.5}
+    tree: {min_same_neighbors: 3, fill_neighbors: 7, fill_share: 0.7, max_replaced_confidence: 0.5}
+    building: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.6}
+    vehicle: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    construction: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    curb: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    road_marking: {min_same_neighbors: 2, fill_neighbors: 6, fill_share: 0.75, max_replaced_confidence: 0.4}
+    utility_cover: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.4}
+  cluster:
+    min_same_overrides: {curb: 2, road_marking: 2, utility_cover: 2}
+  building:
+    ground_class: ground
+    building_class: building
+  ground:
+    ground_class: ground
+  vegetation:
+    low_vegetation_class: low_vegetation
+    high_vegetation_class: tree
+    terrain_class_codes: [2, 71, 82, 75, 74] # Ground, pavement, markings, covers and kerbs.
+    fallback_terrain_class_codes: []
+  planar_unknown_fill:
+    class_names: [ground, paved_surface, building]
+  road:
+    road_class: paved_surface
+    surface_replace_classes: [low_vegetation]

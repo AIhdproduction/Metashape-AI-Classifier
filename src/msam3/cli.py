@@ -5,12 +5,13 @@ import logging
 import sys
 from pathlib import Path
 
-from msam3.config import load_classes, load_settings
+from msam3 import backends
+from msam3.config import load_settings
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="msam3", description="Metashape SAM 3 point-cloud classifier"
+        prog="msam3", description="Metashape AI point-cloud classifier (FlurSeg, SAM 3)"
     )
     commands = result.add_subparsers(dest="command", required=True)
     for name in ("run", "stage1", "stage2", "stage3", "validate", "classes"):
@@ -18,7 +19,16 @@ def parser() -> argparse.ArgumentParser:
         sub.add_argument(
             "--config", type=Path, help="Settings YAML (defaults to config/default.yml)"
         )
-        sub.add_argument("--classes", type=Path, help="Class YAML (defaults to config/classes.yml)")
+        sub.add_argument(
+            "--model",
+            choices=tuple(backends.MODELS),
+            help="Segmentation model (defaults to segmentation.backend, normally flurseg)",
+        )
+        sub.add_argument(
+            "--classes",
+            type=Path,
+            help="Class YAML (defaults to the selected model's classes, with your SAM 3 edits)",
+        )
         if name != "classes":
             sub.add_argument("--project", type=Path, required=True, help="Saved .psx/.psz project")
             sub.add_argument("--chunk", action="append", help="Chunk label; may be repeated")
@@ -34,14 +44,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        classes = load_classes(args.classes)
+        settings = load_settings(args.config)
+        if args.model is not None:
+            settings.segmentation.backend = args.model
+        segmenter = backends.selected(settings)
+        classes = segmenter.classes(args.classes)
         if args.command == "classes":
+            sys.stdout.write(f"Model: {segmenter.title}\n")
             sys.stdout.write(f"{'Name':28} {'Code':>4}  Prompts\n")
             sys.stdout.write(f"{'Unclassified':28} {classes.unknown_code:4}  (undecided points)\n")
             for cls in classes.classes:
-                sys.stdout.write(f"{cls.name:28} {cls.code:4}  {', '.join(cls.prompts)}\n")
+                prompts = ", ".join(cls.prompts) or "(fixed class of the model)"
+                sys.stdout.write(f"{cls.name:28} {cls.code:4}  {prompts}\n")
             return 0
-        settings = load_settings(args.config)
         if args.chunk is not None:
             settings.metashape.chunks = args.chunk
         if args.work_dir is not None:

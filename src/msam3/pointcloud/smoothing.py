@@ -6,12 +6,18 @@ from scipy.spatial import cKDTree
 from msam3.config import SmoothingConfig
 
 
-def smooth(points, labels, shares, config: SmoothingConfig, unknown: int, batch_size: int):
+def smooth(
+    points, labels, shares, config: SmoothingConfig, unknown: int, batch_size: int, protected=()
+):
     result = labels.copy()
     if not config.enabled:
         return result
     tree = cKDTree(points)
-    candidates = np.flatnonzero((shares < config.max_share_to_change) & (labels != unknown))
+    changeable = (shares < config.max_share_to_change) & (labels != unknown)
+    if protected:
+        # A thin line is always the local minority; a majority vote would erase it.
+        changeable &= ~np.isin(labels, list(protected))
+    candidates = np.flatnonzero(changeable)
     for start in range(0, len(candidates), batch_size):
         ids = candidates[start : start + batch_size]
         _, neighbours = tree.query(points[ids], k=min(config.k, len(points)), workers=-1)

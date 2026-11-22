@@ -25,10 +25,12 @@ def legend(classes: Classes) -> list[dict]:
     ]
 
 
-def write_legends(directory: Path, classes: Classes) -> None:
+def write_legends(directory: Path, classes: Classes, model: str | None = None) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     rows = legend(classes)
-    atomic_json(directory / "class_legend.json", rows)
+    # The CSV header is a public format, so only the JSON legend names the model.
+    named = [{**row, "model": model} for row in rows] if model else rows
+    atomic_json(directory / "class_legend.json", named)
     with (directory / "class_legend.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(
             stream, fieldnames=["name", "code", "color", "prompts"], delimiter=";"
@@ -78,7 +80,9 @@ def convert_records(records, header):
     return converted
 
 
-def write_classified(source: Path, output: Path, codes, classes: Classes, batch_size: int):
+def write_classified(
+    source: Path, output: Path, codes, classes: Classes, batch_size: int, model: str | None = None
+):
     output.parent.mkdir(parents=True, exist_ok=True)
     temp = output.with_suffix(".tmp.las")
     counts = np.zeros(256, dtype=np.int64)
@@ -96,12 +100,17 @@ def write_classified(source: Path, output: Path, codes, classes: Classes, batch_
                 counts += np.bincount(labels, minlength=256)
                 offset += len(points)
     temp.replace(output)
-    write_legends(output.parent, classes)
+    write_legends(output.parent, classes, model)
     return counts
 
 
 def merge_class_exports(
-    parts: list[dict], output: Path, classes: Classes, crs_wkt: str, batch_size: int
+    parts: list[dict],
+    output: Path,
+    classes: Classes,
+    crs_wkt: str,
+    batch_size: int,
+    model: str | None = None,
 ) -> np.ndarray:
     """Repair Metashape's five-bit LAS export using separately exported class partitions."""
     if not parts:
@@ -133,5 +142,5 @@ def merge_class_exports(
                     writer.write_points(converted)
                     counts[part["code"]] += len(points)
     temp.replace(output)
-    write_legends(output.parent, classes)
+    write_legends(output.parent, classes, model)
     return counts

@@ -1,19 +1,28 @@
+segmentation:
+  backend: flurseg # flurseg (default, 11 fixed classes) or sam3 (editable text prompts).
 metashape:
   exe: "C:/Program Files/Agisoft/Metashape Pro/metashape.exe" # Professional executable.
   chunks: [] # Empty selects all enabled chunks.
-  imported_label: "SAM3 classified" # New asset label.
+  imported_label: null # null follows the model: "FlurSeg classified" / "SAM3 classified".
   display_mode: image_colors # Preserve and show the original RGB colors from the project photographs.
   make_default: false # Keep the original default unless enabled.
   offscreen: auto # Windows uses -r alone if Qt offscreen is unavailable.
 paths:
-  model: "models/sam3.pt" # Local checkpoint; never downloaded automatically.
+  model: "models/sam3.pt" # SAM 3 checkpoint; only needed for backend sam3, never downloaded.
+  flurseg_model: "models/flurseg/v1" # Folder with config.json, model.safetensors, preprocessor_config.json.
   work_dir: "work" # Intermediate data, grouped by project path hash.
   output_dir: "output" # Final LAS and legends, grouped by project.
   image_path_remap: {} # Prefix mapping, e.g. {"D:/old/": "E:/new/"}.
 gpu:
   device: "cuda:0" # CUDA device for production runs.
-  dtype: "bfloat16" # bfloat16 or float16 autocast.
-  min_vram_gb: 16 # Warn below this many GiB.
+  dtype: "bfloat16" # SAM 3: bfloat16 or float16 autocast. FlurSeg uses flurseg.precision.
+  min_vram_gb: 16 # SAM 3: warn below this many GiB.
+flurseg:
+  resolution: balanced # Long image side: fast 3200, balanced 4000, accurate original. Never upscaled.
+  window_batch_size: 4 # 768-pixel windows per forward pass; halved automatically when VRAM runs out.
+  precision: fp16 # fp16 autocast or fp32.
+  background_threshold: 0.3 # Below this share of the normalised scores a pixel stays unknown.
+  min_mask_confidence: 0.4 # Replaces visibility.min_mask_confidence while FlurSeg is selected.
 sam:
   input_size: 1008 # SAM 3 tile size.
   prompt_batch_size: 8 # Text prompts per decoder batch; reduces runtime on 24 GiB GPUs.
@@ -34,7 +43,7 @@ visibility:
   rel_tolerance: 0.005 # Fallback relative depth slack.
   abs_tolerance_m: 0.02 # Fallback absolute depth slack in metres.
   mask_interior_px: 2 # Cached-mask pixels required between a vote and every class boundary.
-  min_mask_confidence: 0.5 # A pixel below this SAM confidence never votes for a 3D point.
+  min_mask_confidence: 0.5 # SAM 3: a pixel below this never votes. FlurSeg uses flurseg.min_mask_confidence.
 voting:
   voxel_size_m: 0.03 # One original representative per metric voxel.
   block_size_m: 10.0 # Spatial block edge length in metres.
@@ -44,8 +53,10 @@ voting:
   max_ram_gb: 16 # Vote-matrix memory budget in GiB.
   batch_points: 500000 # Bounded projection, I/O, and propagation batches.
   voxel_buckets: 256 # Disk partitions for bounded-memory voxel selection.
+# Class names and codes from here on describe the SAM 3 classes. With FlurSeg selected,
+# config/profile.flurseg.yml replaces these class-dependent entries; other values apply to both.
 ground_assist:
-  enabled: true # Metashape terrain is only used to resolve SAM-unknown points.
+  enabled: true # Metashape terrain is only used to resolve points that the model left unknown.
   classify_before_export: true # Run Metashape's ground classifier for Created and Unclassified source points.
   source_classes: [created, unclassified] # Never overwrite already classified source points.
   max_angle_degrees: 15
@@ -53,13 +64,13 @@ ground_assist:
   max_terrain_slope_degrees: 35
   cell_size_m: 10
   erosion_radius_m: 0.5
-  ground_like_classes: [ground, road, sidewalk] # SAM may choose freely among these surface classes.
-  min_sam_ground_share: 0.15 # Use weak SAM surface evidence only where SAM otherwise remained unknown.
+  ground_like_classes: [ground, road, sidewalk] # The model may choose freely among these surface classes.
+  min_sam_ground_share: 0.15 # Use weak surface evidence only where the model otherwise remained unknown.
   min_sam_ground_views: 1
-  fallback_class: ground # No SAM surface evidence: retain Metashape's terrain result as ground.
+  fallback_class: ground # No surface evidence of the model: retain Metashape's terrain result as ground.
   fallback_confidence: 0.4
 vegetation_assist:
-  enabled: true # Use existing Metashape vegetation classes only where SAM remains unclassified.
+  enabled: true # Use existing Metashape vegetation classes only where the model left a point unknown.
   source_low_codes: [3] # Metashape / ASPRS low vegetation.
   source_high_codes: [5] # Metashape / ASPRS high vegetation.
   low_vegetation_class: low_vegetation
@@ -70,7 +81,7 @@ smoothing:
   k: 8 # Number of neighbours, including the point itself.
   max_share_to_change: 0.6 # Only change lower-share decided points.
 postprocess:
-  enabled: true # Apply the configurable geometry and neighbourhood cleanup after SAM voting.
+  enabled: true # Apply the configurable geometry and neighbourhood cleanup after voting.
   output_subdir: "post_sam_filter" # Per-chunk report folder below work/.
   neighborhood_radius_m: 0.35 # Metric neighbourhood for NPI outlier removal and hole filling.
   neighbors: 16 # Nearest neighbours inspected per representative point.
@@ -125,8 +136,8 @@ postprocess:
     max_dem_slope_degrees: 55
     max_dem_residual_m: 0.15
     high_vegetation_min_height_m: 0.5 # High vegetation at 50 cm above the DTM.
-    threshold_tolerance: 0.1 # Keep SAM's class inside the 45–55 cm transition band.
-    sam_high_min_height_m: 0.4 # Strong SAM hedge/tree evidence may override a DTM only from 40 cm above terrain.
+    threshold_tolerance: 0.1 # Keep the model's class inside the 45–55 cm transition band.
+    sam_high_min_height_m: 0.4 # Strong hedge/tree evidence of the model may override a DTM only from 40 cm above terrain.
     sam_high_min_share: 0.65 # Flat grass stays low; this only preserves reliable high-vegetation mask shapes.
   unknown_fill:
     enabled: true # Extend a class only into immediately adjacent unclassified edge points.

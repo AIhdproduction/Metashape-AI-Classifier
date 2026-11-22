@@ -52,9 +52,17 @@ def point_class_counts(point_cloud):
     return {str(int(code)): int(count) for code, count in point_cloud.point_count_by_class.items()}
 
 
+# Both models and older versions, including the copies that Metashape numbers.
+CLASSIFIED_LABEL = re.compile(r"^(SAM ?3|FlurSeg) classified\b", re.IGNORECASE)
+
+
 def is_msam3_import(point_cloud):
-    meta = getattr(point_cloud, "meta", {})
-    return "msam3.import_id" in meta.keys()
+    """A classified result of any model or version. It must never become the next input."""
+    keys = getattr(point_cloud, "meta", {}).keys()
+    if "msam3.import_id" in keys or "msam3.source_point_cloud_key" in keys:
+        return True
+    label = getattr(point_cloud, "label", None)
+    return isinstance(label, str) and CLASSIFIED_LABEL.match(label.strip()) is not None
 
 
 def source_point_cloud(chunk):
@@ -82,12 +90,12 @@ def source_point_cloud(chunk):
     candidates = [point_cloud for point_cloud in point_clouds if not is_msam3_import(point_cloud)]
     if not candidates:
         return None
-    # Prefer the complete source if a project retains multiple non-SAM cloud assets.
+    # Prefer the complete source if a project retains multiple unclassified cloud assets.
     return max(candidates, key=lambda point_cloud: getattr(point_cloud, "point_count", 0))
 
 
 def classify_ground_support(chunk, job, progress=None):
-    """Classify only unclassified source points and expose ground as a SAM hint."""
+    """Classify only unclassified source points and expose ground as a hint for the model."""
     config = job["settings"]["ground_assist"]
     point_cloud = chunk.point_cloud
     before = point_class_counts(point_cloud)
@@ -259,11 +267,12 @@ def export_chunk(chunk, job, progress=None):
     export_cloud(
         chunk, directory / "dense.las", export_crs, chunk.point_cloud.key, progress=progress
     )
-    write_legends(directory, job["classes"])
+    write_legends(directory, job["classes"], job.get("model", {}).get("title"))
     if job["settings"]["visibility"]["mode"] == "depth_maps":
         if chunk.depth_maps is None:
             raise RuntimeError("depth_maps mode requires retained Metashape depth maps")
-        for camera, record in zip(cameras, records, strict=False):
+        # No strict=: Python 3.9 (inferred for Metashape 2.2) lacks it; lengths are equal anyway.
+        for camera, record in zip(cameras, records):
             if camera not in chunk.depth_maps.keys():
                 raise RuntimeError("No depth map for camera " + camera.label)
             depth = chunk.depth_maps[camera]
@@ -312,7 +321,7 @@ def main(job, document=None, progress=None):
     if ground_classified:
         document.save()
         job["stage1_identity"] = stage1_identity(job)
-        LOG.info("Saved Metashape ground classification before SAM processing")
+        LOG.info("Saved Metashape ground classification before segmentation")
     write_json(
         Path(job["work_dir"]) / "stage1_done.json",
         {"schema": 1, "chunks": chunks, "stage1_identity": job["stage1_identity"]},

@@ -1,0 +1,327 @@
+{
+  "nav": {
+    "overview": "Overview",
+    "models": "Models",
+    "classes": "Classes",
+    "settings": "Settings",
+    "log": "Log"
+  },
+  "common": {
+    "about": "approx.",
+    "cancel": "Cancel",
+    "copied": "Copied to the clipboard."
+  },
+  "action": {
+    "start": "Start classification",
+    "cancel": "Cancel",
+    "cancelling": "Cancelling …",
+    "open": "Open",
+    "close_project": "Back to the projects",
+    "to_models": "Set up the model",
+    "to_log": "Show the log",
+    "open_folder": "Open folder",
+    "copy_path": "Copy path",
+    "copy": "Copy",
+    "copy_log": "Copy log",
+    "recheck": "Check again",
+    "select_model": "Select {model}",
+    "add_class": "Add class",
+    "edit": "Edit",
+    "edit_prompts": "Edit prompts",
+    "remove": "Remove",
+    "reset": "Reset to standard",
+    "save": "Save",
+    "stop_worker": "Stop background process",
+    "auto_batch": "Auto: maximum safe"
+  },
+  "lock": {
+    "standalone": "Runs start from Metashape: open the project, then Tools > Run Script and choose start_in_metashape.py.",
+    "viewing": "An earlier run is only displayed and cannot be changed.",
+    "running": "Changes are locked during the run.",
+    "finished": "This run has ended. Start the script in Metashape again for a new run.",
+    "model_missing": "The files of the selected model are missing on this PC.",
+    "model_invalid": "The files of the selected model are incomplete or do not match.",
+    "model_runtime": "The packages of the selected model are missing. Please run install.bat again.",
+    "classes": "Your SAM 3 classes are invalid. Reset them on the Classes page or fix config/classes.user.yml."
+  },
+  "overview": {
+    "empty_title": "No project open",
+    "empty_hint": "Metashape AI Classifier classifies the point cloud of the project that is open in Metashape.",
+    "recent": "Recent projects",
+    "recent_empty": "There are no earlier runs yet.",
+    "ready_title": "Classify point cloud",
+    "photos": "{count} enabled camera images",
+    "summary": "Profile {profile} · {classes} classes · result “{label}”",
+    "viewing": "Earlier run, view only"
+  },
+  "recent": {
+    "open": "not completed",
+    "prepare": "not completed",
+    "export": "not completed",
+    "classify": "not completed",
+    "import": "not completed",
+    "complete": "done",
+    "cancelled": "cancelled",
+    "error": "error"
+  },
+  "model": {
+    "speed_note": "Segmentation, measured in the SAMcloud drone test (approx. 2 s instead of 30 s per photo). Export, point voting and import do not get faster; the factor varies with the resolution.",
+    "flurseg": {
+      "short": "approx. 15× faster",
+      "choice": "11 fixed classes, no prompts of your own.",
+      "description": "Our own model (EoMT-DINOv3) for drone photos of construction sites, roads and settlements. Default.",
+      "speed": "approx. 15× faster",
+      "classes": "11 fixed classes",
+      "accuracy": "weaker than SAM 3 on thin classes",
+      "licence": "DINOv3 License",
+      "missing": "FlurSeg is not installed. Download the three files config.json, model.safetensors (1.26 GB) and preprocessor_config.json from the v1 folder and put them into this folder:",
+      "target": "Target folder on this PC",
+      "link": "FlurSeg v1 on Hugging Face",
+      "command": "PowerShell command"
+    },
+    "sam3": {
+      "short": "own classes",
+      "choice": "Recognises your own classes through English prompts, but is much slower.",
+      "description": "Meta SAM 3 looks for each class through text prompts. You can add classes of your own.",
+      "speed": "slower (reference)",
+      "classes": "freely editable, with own classes",
+      "accuracy": "more accurate than FlurSeg in the model test",
+      "licence": "Meta SAM License",
+      "missing": "SAM 3 is not installed. It is only needed when SAM 3 is selected: request access from Meta and save sam3.pt here:",
+      "target": "Target file on this PC",
+      "link": "SAM 3 on Hugging Face (request access)",
+      "command": "PowerShell command (after approval and hf auth login)"
+    }
+  },
+  "models": {
+    "intro": "Both models run locally. Only the selected model is needed.",
+    "rechecked": "Models checked.",
+    "selected": "Selected",
+    "manual_copy": "The path is customised in the configuration. Copy the files there by hand.",
+    "fact": {
+      "speed": "Speed",
+      "classes": "Classes",
+      "accuracy": "Accuracy",
+      "licence": "Licence"
+    },
+    "state": {
+      "ready": "Installed",
+      "missing": "Missing",
+      "invalid": "Invalid",
+      "runtime": "Package missing"
+    },
+    "weights": {
+      "v1": "v1",
+      "unknown": "not v1 / unknown weights",
+      "checking": "being checked"
+    }
+  },
+  "estimate": {
+    "value": "Estimated run time: {time}",
+    "unknown": "Estimated run time: not available yet",
+    "windows_default": "Estimate from {count} image windows at {rate} s per window (measured with fp32 on an RTX 4090), plus export and import.",
+    "windows_history": "Estimate from {count} image windows and earlier FlurSeg runs of this project, plus export and import.",
+    "tiles_default": "Estimate from {count} image tiles with a typical value for SAM 3, plus export and import.",
+    "tiles_history": "Estimate from {count} image tiles and earlier SAM 3 runs of this project, plus export and import."
+  },
+  "flow": {
+    "title": "Project workflow",
+    "waiting": "Waiting",
+    "active": "Running",
+    "done": "Done",
+    "error": "Error",
+    "cancelled": "Cancelled",
+    "total": "Total time",
+    "per_step": "Time per step",
+    "storage": "Storage",
+    "storage_work": "Work data",
+    "storage_free": "Free on the drive"
+  },
+  "step": {
+    "prepare": "Preparation",
+    "export": "Export from Metashape",
+    "classify": "Segmentation and voting",
+    "import": "Import and LAS"
+  },
+  "running": {
+    "banner": "The run continues even if this window is reloaded or closed. Please keep Metashape open.",
+    "prepare": "Checking settings and model",
+    "export": "Metashape is exporting the point cloud and cameras",
+    "classify": "Classifying the camera images",
+    "import": "Metashape is importing the classified point cloud",
+    "keep_open": "Please keep Metashape open.",
+    "loading": "Checking the geometry and loading the model …",
+    "first": "The model is working on the first of {total} images …",
+    "finishing": "All images are done. Computing post-filter and LAS …",
+    "images": "Image {done} of {total}: {name}",
+    "remaining": "Images: approx. {time} left"
+  },
+  "cancel": {
+    "requested": "Cancellation is already in progress.",
+    "locked": "Cancelling is only possible during preparation and computation, not during export and import."
+  },
+  "worker": {
+    "running": "This run's background process is still computing and occupies the GPU although Metashape no longer waits for it."
+  },
+  "result": {
+    "banner": "Done. The point cloud “{label}” has been imported into Metashape. Metashape is the 3D view.",
+    "title": "Classified points",
+    "total": "{model} · {count} points",
+    "code": "LAS {code}",
+    "output": "Classified LAS file"
+  },
+  "failed": {
+    "title": "Classification failed",
+    "hint": "See the log for details. After fixing the cause, start the script in Metashape again.",
+    "interrupted": "The connection to the script in Metashape has ended. Metashape was closed or the script was aborted.",
+    "unknown": "Unknown error."
+  },
+  "cancelled": {
+    "banner": "Cancelled. No classified point cloud was imported.",
+    "title": "Cancelled",
+    "hint": "You can close this window. Start the script in Metashape again for a new run."
+  },
+  "inactive": {
+    "title": "Inactive because classes are disabled:",
+    "line": "{helper} (missing: {classes})",
+    "ground_assist": "Ground assist",
+    "vegetation_assist": "Vegetation assist",
+    "vegetation": "Vegetation split by height",
+    "road": "Road repair",
+    "roof": "Flat-roof repair",
+    "ground_height": "Filter for detached ground points"
+  },
+  "classes": {
+    "kind": {
+      "flurseg": "fixed classes",
+      "sam3": "own classes"
+    },
+    "fixed_reason": "FlurSeg was trained on exactly these 11 classes. They are part of the weights and cannot be changed. Select SAM 3 for classes of your own.",
+    "fixed_title": "FlurSeg's 11 classes",
+    "editable_reason": "SAM 3 looks for each class through English prompts. Here you can adjust prompts, disable standard classes and add your own. These changes apply to SAM 3 only.",
+    "own_title": "Own classes",
+    "own_empty": "No classes of your own yet.",
+    "standard_title": "Standard classes",
+    "disabled": "disabled",
+    "saved": "Classes saved.",
+    "reset_title": "Reset the classes?",
+    "reset_text": "Your own classes, edited prompts and disabled classes will be lost.",
+    "reset_finished": "Standard classes restored.",
+    "code_note": "LAS code 1 means “unclassified”. Metashape imports only codes below 128."
+  },
+  "dialog": {
+    "add_class": "Add class",
+    "edit_class": "Edit class",
+    "name": "Name",
+    "prompts": "Prompts in English",
+    "prompts_hint": "Separate several prompts with commas, for example: manhole, manhole cover",
+    "color": "Colour",
+    "code": "LAS code (empty = automatic)",
+    "code_hint": "Free codes from 2 to 127 are allowed. An automatic code stays fixed afterwards."
+  },
+  "class_error": {
+    "name": "“{name}” does not work: start with a letter, then use only letters, digits or underscores.",
+    "exists": "The name “{name}” already exists.",
+    "prompts": "“{name}” needs at least one English prompt.",
+    "color": "“{color}” is not a #RRGGBB colour.",
+    "code_range": "LAS code {code} is outside {low} to {high}.",
+    "code_used": "LAS code {code} is already used.",
+    "code_whole": "The LAS code must be a whole number.",
+    "no_code": "No free LAS code below 128 remains.",
+    "not_standard": "“{name}” is not a standard class.",
+    "none_left": "At least one class must stay enabled.",
+    "file": "The class file {path} cannot be read: {detail}"
+  },
+  "profile": {
+    "fast": "Fast",
+    "balanced": "Balanced",
+    "accurate": "High accuracy",
+    "custom": "Custom",
+    "custom_hint": "Custom: the values match no profile.",
+    "flurseg_fast": "Long image side 3200 px. Fastest; thin classes (curb, marking, utility cover) suffer most.",
+    "flurseg_balanced": "Long image side 4000 px, as in SAMcloud. Thin classes lose some accuracy on very large photos.",
+    "flurseg_accurate": "Original resolution, as the model card recommends. Most accurate for thin classes.",
+    "sam3_fast": "50 % image resolution, 10 % overlap, 1 observation per point.",
+    "sam3_balanced": "75 % image resolution, 20 % overlap, 1 observation per point.",
+    "sam3_accurate": "100 % image resolution, 30 % overlap, 2 observations per point."
+  },
+  "settings": {
+    "standalone": "The settings of a run appear when the app is started from Metashape. The defaults are in config/default.yml.",
+    "profile": "Profile",
+    "profile_hint": "The choice applies to this run only. config/default.yml stays unchanged.",
+    "flurseg": "FlurSeg",
+    "flurseg_hint": "768 px windows with half overlap. If GPU memory runs short, the window batch is halved automatically.",
+    "window_batch": "Windows per pass",
+    "image_size": "Image size for segmentation: {value}",
+    "long_side": "long side at most {pixels} px",
+    "original": "original resolution",
+    "sam": "SAM 3",
+    "sam_hint": "1008 px tiles. More prompts per pass are faster but need more GPU memory.",
+    "image_scale": "Image resolution",
+    "overlap": "Tile overlap",
+    "min_views": "Image observations per point",
+    "prompt_batch": "Prompts per pass",
+    "auto_done": "Chose {batch} prompts per pass ({free} of {total} GiB GPU memory free). Metashape and the PC may respond slowly.",
+    "assists": "Assists from Metashape",
+    "assists_hint": "They decide only where the model leaves a point unknown.",
+    "ground_assist": "Ground assist",
+    "vegetation_assist": "Vegetation assist",
+    "filters": "Post-filter",
+    "filters_hint": "Cleanup of the point cloud after voting.",
+    "postprocess": "Use the geometric post-filter",
+    "vegetation": "Split vegetation by height above terrain",
+    "road": "Repair road surfaces",
+    "smoothing": "Additional kNN smoothing",
+    "expert": "Expert",
+    "expert_hint": "Thresholds are shares between 0 and 1. Normally leave them as they are.",
+    "precision": "Precision",
+    "instance_threshold": "Minimum score per object",
+    "background": "Threshold for unknown pixels",
+    "mask_confidence": "Minimum confidence for a vote",
+    "min_share": "Minimum share of the winning class",
+    "voxel": "Voxel size in metres",
+    "interior": "Distance to the mask edge in pixels",
+    "language": "Language",
+    "language_hint": "Applies to the whole app and is saved."
+  },
+  "log": {
+    "hint": "Live log of the app and the background process.",
+    "empty": "No entries yet.",
+    "folder": "Folder of this session"
+  },
+  "error": {
+    "invalid_setting": "Invalid value for {name}.",
+    "save": "Saving failed: {detail}",
+    "worker_gone": "The background process is no longer running.",
+    "worker_alive": "The background process could not be stopped. Please end it in the Task Manager.",
+    "session_gone": "This run no longer exists.",
+    "folder": "The folder cannot be opened.",
+    "classes_file": "The class file is invalid. Please reset it to standard.",
+    "no_gpu_info": "Free GPU memory cannot be read. The current value stays.",
+    "no_safe_batch": "Only {free} GiB of GPU memory free: no safe value found. Please close other GPU applications."
+  },
+  "class": {
+    "other": "Other",
+    "ground": "Ground",
+    "paved_surface": "Paved surface",
+    "low_vegetation": "Low vegetation",
+    "tree": "Tree, high vegetation",
+    "building": "Building",
+    "vehicle": "Vehicle",
+    "construction": "Construction",
+    "curb": "Curb",
+    "road_marking": "Road marking",
+    "utility_cover": "Utility cover",
+    "road": "Road",
+    "sidewalk": "Sidewalk",
+    "construction_machinery": "Construction machinery",
+    "utility_pole": "Utility pole",
+    "traffic_sign": "Traffic sign",
+    "fence": "Fence",
+    "power_line": "Power line",
+    "scaffolding": "Scaffolding",
+    "construction_material": "Construction material",
+    "water": "Water",
+    "unclassified": "Unclassified"
+  }
+}

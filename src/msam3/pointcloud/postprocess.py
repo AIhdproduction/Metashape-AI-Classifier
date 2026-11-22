@@ -1,5 +1,6 @@
-"""Conservative, configurable geometry cleanup after SAM image voting."""
+"""Conservative, configurable geometry cleanup after image voting."""
 
+import logging
 from collections import Counter
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from scipy.spatial import cKDTree
 from msam3.cache import atomic_json
 from msam3.config import Classes, PostprocessConfig
 
+LOG = logging.getLogger(__name__)
+
 
 def _class_codes(classes: Classes, names) -> dict[str, int]:
     available = {item.name: item.code for item in classes.classes}
@@ -16,6 +19,12 @@ def _class_codes(classes: Classes, names) -> dict[str, int]:
     if unknown:
         raise ValueError("postprocess refers to unknown classes: " + ", ".join(unknown))
     return {name: available[name] for name in names}
+
+
+def _available_codes(classes: Classes, names) -> dict[str, int]:
+    """Codes of the named classes that exist: a disabled class only switches off its own step."""
+    available = {item.name: item.code for item in classes.classes}
+    return {name: available[name] for name in names if name in available}
 
 
 def _neighbours(tree, points, ids, count, radius, batch_size):
@@ -75,6 +84,7 @@ def _remove_unclustered(tree, points, labels, classes, config, batch_size):
     snapshot = labels.copy()
     for item in classes.classes:
         code = item.code
+        required = cluster.min_same_overrides.get(item.name, cluster.min_same_neighbors)
         ids = np.flatnonzero(snapshot == code)
         if not len(ids):
             continue
@@ -87,7 +97,7 @@ def _remove_unclustered(tree, points, labels, classes, config, batch_size):
             batch_size,
         ):
             support, _ = _support(snapshot, indices, distances, code)
-            reject = support < cluster.min_same_neighbors
+            reject = support < required
             if np.any(reject):
                 labels[selected[reject]] = classes.unknown_code
                 removed[int(code)] += int(reject.sum())
@@ -111,7 +121,7 @@ def _remove_isolated(tree, points, labels, unknown, rules, config, batch_size):
         ):
             support, _ = _support(snapshot, indices, distances, code)
             # A confident single point is still a reconstruction artefact. Confidence
-            # describes SAM's image vote, not whether a 3D point belongs to an object.
+            # describes the model's image vote, not whether a 3D point belongs to an object.
             reject = support < rule.min_same_neighbors
             if np.any(reject):
                 labels[selected[reject]] = unknown
@@ -119,13 +129,18 @@ def _remove_isolated(tree, points, labels, unknown, rules, config, batch_size):
     return removed
 
 
-def _fill_small_holes(tree, points, labels, shares, rules, config, batch_size, road_code):
+def _fill_small_holes(
+    tree, points, labels, shares, rules, config, batch_size, road_code, protected=()
+):
     filled = Counter()
     if not rules:
         return filled
     snapshot = labels.copy()
     maximum = max(rule.max_replaced_confidence for rule in rules.values())
-    candidates = np.flatnonzero(shares <= maximum)
+    replaceable = shares <= maximum
+    if protected:
+        replaceable &= ~np.isin(snapshot, list(protected))
+    candidates = np.flatnonzero(replaceable)
     for selected, distances, indices in _neighbours(
         tree,
         points,
@@ -523,8 +538,8 @@ def _split_vegetation_height(points, labels, shares, classes, config, batch_size
     proposed[valid_surface & (heights >= vegetation.high_vegetation_min_height_m + tolerance)] = (
         high_code
     )
-    # Preserve the actual SAM mask of a reliable hedge/tree near the threshold. Unlike the old
-    # radius rule, this never expands into a circular area beyond what SAM identified.
+    # Preserve the actual mask of a reliable hedge/tree near the threshold. Unlike the old
+    # radius rule, this never expands into a circular area beyond what the model identified.
     proposed[strong_sam_high] = high_code
     replace = labels[candidates] != proposed
     changed = Counter(int(code) for code in proposed[replace])
@@ -560,9 +575,11 @@ def _repair_road_surface(points, labels, classes, config, batch_size, road_code)
     if not road_config.enabled or road_code is None:
         return 0
     names = [road_config.road_class, *road_config.surface_replace_classes]
-    codes = _class_codes(classes, names)
+    codes = _available_codes(classes, names)
     target_codes = [
-        codes[name] for name in road_config.surface_replace_classes if codes[name] != road_code
+        codes[name]
+        for name in road_config.surface_replace_classes
+        if name in codes and codes[name] != road_code and name not in config.protected_classes
     ]
     if road_config.fill_unknown_surface:
         target_codes.append(classes.unknown_code)
@@ -623,12 +640,16 @@ def _repair_road_surface(points, labels, classes, config, batch_size, road_code)
 
 
 def apply_postprocess(points, labels, shares, classes, config, directory, batch_size):
-    """Apply geometry, cluster, and surface cleanup after SAM image voting."""
+    """Apply geometry, cluster, and surface cleanup after image voting."""
     labels = np.asarray(labels, dtype=np.uint8).copy()
     if not config.enabled or not len(labels):
         return labels
-    codes = _class_codes(classes, config.class_rules)
-    rules = {codes[name]: rule for name, rule in config.class_rules.items()}
+    codes = _available_codes(classes, config.class_rules)
+    skipped = sorted(set(config.class_rules) - set(codes))
+    if skipped:
+        LOG.info("Post-filter rules skipped, classes not in this run: %s", ", ".join(skipped))
+    rules = {codes[name]: rule for name, rule in config.class_rules.items() if name in codes}
+    protected = set(_available_codes(classes, config.protected_classes).values())
     tree = cKDTree(points)
     before = Counter(int(code) for code in labels)
     roofs = _repair_flat_roofs(points, labels, classes, config, batch_size)
@@ -646,7 +667,9 @@ def apply_postprocess(points, labels, shares, classes, config, directory, batch_
         tree, points, labels, classes, config, batch_size
     )
     road_surface = _repair_road_surface(points, labels, classes, config, batch_size, road_code)
-    filled = _fill_small_holes(tree, points, labels, shares, rules, config, batch_size, road_code)
+    filled = _fill_small_holes(
+        tree, points, labels, shares, rules, config, batch_size, road_code, protected
+    )
     unknown_edges = _fill_unknown_edges(
         tree, points, labels, classes, rules, config, batch_size, road_code
     )

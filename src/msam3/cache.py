@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +27,19 @@ def atomic_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(data, indent=2, allow_nan=False, default=str), encoding="utf-8")
-    temp.replace(path)
+    replace_file(temp, path)
+
+
+def replace_file(source: Path, target: Path, attempts: int = 60) -> None:
+    """Windows refuses a replace for the moment in which the UI reads the same file."""
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt + 1 == attempts:
+                raise
+            time.sleep(0.05)
 
 
 class LabelCache:

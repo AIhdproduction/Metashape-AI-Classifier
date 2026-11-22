@@ -8,7 +8,9 @@ Zusammenfassung erklärt die Bedingungen; sie ist keine zusätzliche Lizenz.
 
 AIhdproduction behält die Rechte an den eigenen Projektbestandteilen. Die Lizenz räumt
 Nutzungsrechte ein und überträgt kein Eigentum. Rechte anderer Mitwirkender sowie an Meta
-SAM 3, Agisoft Metashape und anderen Abhängigkeiten bleiben bei den jeweiligen Berechtigten.
+DINOv3 und SAM 3, EoMT, Agisoft Metashape und anderen Abhängigkeiten bleiben bei den jeweiligen
+Berechtigten. Der Lizenztext nennt das Projekt noch mit dem früheren Namen
+„Metashape SAM 3 Point Cloud Classifier“; gemeint ist der heutige „Metashape AI Classifier“.
 
 ## Schule, Lehre und Forschung: kostenlos
 
@@ -35,7 +37,7 @@ ebenfalls anzufragen.
 
 Preis, Umfang und weitere Bedingungen werden individuell vereinbart. Eine Anfrage allein
 oder eine ausbleibende Antwort ist keine Erlaubnis. Anfragen können über die
-[GitHub-Issues des Projekts](https://github.com/AIhdproduction/metashape-sam3-classifier/issues)
+[GitHub-Issues des Projekts](https://github.com/AIhdproduction/Metashape-AI-Classifier/issues)
 gestellt werden. Dort bitte keine vertraulichen Kunden- oder Projektdaten veröffentlichen.
 
 ## Eigene Daten und Ergebnisse
@@ -47,22 +49,38 @@ Daten und Ergebnissen sowie an Drittmaterial bleiben zu beachten.
 
 Ergebnisse erlaubter nichtkommerzieller Forschung und Lehre dürfen veröffentlicht und
 geteilt werden, beispielsweise in Abschlussarbeiten, Publikationen und Forschungsdatensätzen.
-Dabei ist das Projekt als „Metashape SAM 3 Point Cloud Classifier, AIhdproduction“ zu nennen
+Dabei ist das Projekt als „Metashape AI Classifier (Metashape SAM 3 Point Cloud Classifier),
+AIhdproduction“ zu nennen
 und nach Möglichkeit zu verlinken. Die Regel zur kommerziellen Verwertung ist eine Bedingung
 der Nutzungserlaubnis für den Lizenznehmer, kein Eigentumsanspruch auf alle Ergebnisse und
 keine automatisch auf jeden Empfänger übertragene Ergebnislizenz.
 
+## FlurSeg: DINOv3 License
+
+**Built with DINOv3.** Die Gewichte von [FlurSeg](https://huggingface.co/AIhdproduction/Flurseg)
+stehen unter der [DINOv3 License](https://ai.meta.com/resources/models-and-libraries/dinov3-license/)
+von Meta, weil das Modell auf DINOv3 aufbaut. Die Lizenz dieses Projekts gilt nicht für die
+Gewichte und ändert deren Bedingungen nicht. Die DINOv3 License verlangt unter anderem:
+
+- bei Weitergabe der Gewichte oder davon abgeleiteter Materialien eine Kopie der Vereinbarung,
+- bei Forschungspublikationen eine Erwähnung von DINOv3,
+- die Einhaltung von Handelskontrollen. Bestimmte Nutzungen sind ausgeschlossen, zum Beispiel
+  militärische.
+
+Die Modellarchitektur EoMT steht unter der MIT-Lizenz, Transformers unter Apache 2.0.
+
 ## Meta SAM 3 und weitere Fremdsoftware
 
-Die Modellgewichte werden hier nicht mitgeliefert. Nutzer beziehen sie separat und akzeptieren
-Metas Bedingungen. Der Installer installiert SAM-Code aus dem offiziellen Repository.
+SAM 3 ist optional. Die Modellgewichte beider Modelle werden hier nicht mitgeliefert. Nutzer
+beziehen sie separat und akzeptieren die jeweiligen Bedingungen. Der Installer installiert den
+SAM-Code aus dem offiziellen Repository, auch wenn später nur FlurSeg verwendet wird.
 Auch wenn anschließend nur Ergebnisse weitergegeben werden, unterliegt die Modellnutzung
 weiterhin der [SAM-Lizenz von Meta](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE).
 Bei Forschungspublikationen verlangt Meta eine Erwähnung der verwendeten SAM-Materialien.
 Wer SAM-Code, Gewichte oder davon abgeleitete Materialien mitliefert, muss die entsprechenden
 Weitergabebedingungen erfüllen, einschließlich einer Kopie der Meta-Lizenz.
 
-Metashape benötigt eine separate Agisoft-Lizenz. Eine kommerzielle Freigabe durch
+Die App verwendet NiceGUI (MIT). Metashape benötigt eine separate Agisoft-Lizenz. Eine kommerzielle Freigabe durch
 AIhdproduction ersetzt keine Genehmigung anderer Rechteinhaber. Details und Quellen stehen
 in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 

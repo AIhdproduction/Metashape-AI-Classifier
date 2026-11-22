@@ -9,57 +9,47 @@ import json
 import logging
 from pathlib import Path
 
-from msam3.cache import atomic_json, json_hash
-from msam3.config import Classes, Settings, load_classes, load_settings
-from msam3.driver import _execute, job_directory, job_lock, prepare_stage3_inputs, project_state
-from msam3.pointcloud.las_io import merge_class_exports
-from msam3.segmentation.sam3_backend import require_checkpoint
+from msam3 import backends
+from msam3.cache import atomic_json
+from msam3.config import Classes, Settings, load_settings, merge_settings
+from msam3.driver import _execute, export_identity, job_directory, job_lock, prepare_stage3_inputs
+from msam3.pointcloud.las_io import legend, merge_class_exports
 
 LOG = logging.getLogger(__name__)
 
 
-def _merge_settings(base: dict, override: dict) -> dict:
-    """Merge the launch-window choices without persisting them into default.yml."""
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _merge_settings(base[key], value)
-        else:
-            base[key] = value
-    return base
+def session_options(session: Path) -> dict:
+    choices = session / "options.json"
+    return json.loads(choices.read_text(encoding="utf-8")) if choices.is_file() else {}
 
 
 def settings_for_session(session: Path) -> Settings:
     settings = load_settings()
-    choices = session / "options.json"
-    if not choices.is_file():
-        return settings
-    payload = json.loads(choices.read_text(encoding="utf-8"))
-    override = payload.get("settings_override", {})
+    override = session_options(session).get("settings_override", {})
     if not isinstance(override, dict):
-        raise ValueError("Die Startfenster-Einstellungen sind ungueltig.")
-    return Settings.model_validate(_merge_settings(settings.model_dump(mode="json"), override))
+        raise ValueError("Die Einstellungen aus dem Fenster sind ungültig.")
+    # The app's choices apply to this run only; default.yml is never written.
+    return Settings.model_validate(merge_settings(settings.model_dump(mode="json"), override))
 
 
 def prepare(session: Path) -> None:
     project = Path(json.loads((session / "session.json").read_text(encoding="utf-8"))["project"])
     settings = settings_for_session(session)
-    classes = load_classes()
-    require_checkpoint(settings.paths.model)
+    segmenter = backends.selected(settings)
+    # Only the selected model: missing SAM weights never block FlurSeg, and the reverse.
+    segmenter.require_files(settings)
+    segmenter.require_runtime()
+    # The app snapshots the classes at Start, so later edits cannot change a running job.
+    classes = segmenter.classes(snapshot=session_options(session).get("classes"))
+    # In this short-lived process, so that a PC without CUDA fails before the long export.
+    segmenter.require_gpu(settings)
     work = job_directory(project, settings)
     # Reuse the project's export folder so a rerun updates the delivered LAS and legends
     # in place. The final writer uses an atomic replace for same-name files.
     export = project.parent / "export"
     export.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
-    identity = json_hash(
-        {
-            "schema": 1,
-            "project": project_state(project),
-            "chunks": settings.metashape.chunks,
-            "depth_maps": settings.visibility.mode == "depth_maps",
-            "ground_assist": settings.ground_assist.model_dump(),
-        }
-    )
+    identity = export_identity(project, settings)
     job = {
         "schema": 1,
         "project": str(project),
@@ -68,11 +58,13 @@ def prepare(session: Path) -> None:
         # Work data remains in the repository and never pollutes the project directory.
         "output_dir": str(export),
         "final_las_name": "punktwolke_class.las",
-        "settings": settings.model_dump(mode="json"),
+        "settings": segmenter.job_settings(settings),
+        "model": segmenter.describe(),
         "classes": classes.model_dump(),
         "stage1_identity": identity,
     }
     atomic_json(session / "job.json", job)
+    LOG.info("Prepared %s with %d classes", segmenter.title, len(classes.classes))
 
 
 def stage2(session: Path) -> None:
@@ -87,7 +79,9 @@ def stage2(session: Path) -> None:
             "stage2", project, work, Path(job["output_dir"]), settings, classes, False
         )
     job = json.loads(job_path.read_text(encoding="utf-8"))
-    job["stage3_inputs"] = prepare_stage3_inputs(result["chunks"], job["stage1_identity"], classes)
+    job["stage3_inputs"] = prepare_stage3_inputs(
+        result["chunks"], job["stage1_identity"], classes, result["model_identity"]
+    )
     atomic_json(job_path, job)
 
 
@@ -97,6 +91,8 @@ def finalize(session: Path) -> None:
     completed = json.loads((Path(job["work_dir"]) / "stage3_done.json").read_text(encoding="utf-8"))
     classes = Classes.model_validate(job["classes"])
     inputs = {item["directory"]: item for item in job["stage3_inputs"]}
+    title = job.get("model", {}).get("title")
+    totals = dict.fromkeys(range(256), 0)
     for result in completed["chunks"]:
         source = inputs[result["directory"]]
         counts = merge_class_exports(
@@ -105,12 +101,29 @@ def finalize(session: Path) -> None:
             classes,
             result["crs_wkt"],
             job["settings"]["voting"]["batch_points"],
+            title,
         )
+        for code, count in enumerate(counts):
+            totals[code] += int(count)
         if int(counts.sum()) != sum(int(value) for value in source["counts"].values()):
             raise RuntimeError("Final LAS point count differs from the imported point cloud")
     atomic_json(
         session / "finalize_done.json",
-        {"outputs": [item["output"] for item in completed["chunks"]]},
+        {
+            "outputs": [item["output"] for item in completed["chunks"]],
+            "model": job.get("model", {}),
+            "label": job["settings"]["metashape"]["imported_label"],
+            "point_count": sum(totals.values()),
+            "classes": [
+                {
+                    "name": row["name"],
+                    "code": row["code"],
+                    "color": row["color"],
+                    "count": totals[row["code"]],
+                }
+                for row in legend(classes)
+            ],
+        },
     )
 
 
