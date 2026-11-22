@@ -40,6 +40,8 @@ Verified source revision: `0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc`.
 
 SAM 3 is subject to Meta's SAM License:
 https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE
+(copy from revision `0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc`:
+[licenses/SAM3_LICENSE.txt](licenses/SAM3_LICENSE.txt)).
 
 The checkpoint is not included or redistributed. Users must request access and accept the
 applicable terms at https://huggingface.co/facebook/sam3. Upstream package metadata contains
@@ -67,12 +69,14 @@ Verified revision: `5df53dbbf721778f1ecd4903369e9465926ae2fd`, folder `v1`.
 FlurSeg was trained by AIhdproduction. Its weights are released under Meta's DINOv3 License,
 because the backbone is DINOv3:
 https://ai.meta.com/resources/models-and-libraries/dinov3-license/
+(copy from FlurSeg revision `5df53dbbf721778f1ecd4903369e9465926ae2fd`:
+[licenses/FLURSEG_DINOV3_LICENSE.md](licenses/FLURSEG_DINOV3_LICENSE.md)).
 
 The weights are not included or redistributed here. Users download them separately and are
 bound by that agreement. Among other conditions it requires providing a copy of the agreement
 when distributing DINO Materials or derivatives, acknowledging DINO Materials in research
-publications, and it prohibits certain uses, including military ones. The licence copy and the
-attribution of the training data are in the model repository (`LICENSE`, `NOTICE.md`).
+publications, and it prohibits certain uses, including military ones. The original licence file
+and the attribution of the training data are in the model repository (`LICENSE`, `NOTICE.md`).
 
 The model architecture is EoMT (Kerssies et al., "Your ViT is Secretly an Image Segmentation
 Model", CVPR 2025), MIT licence: https://github.com/tue-mps/eomt

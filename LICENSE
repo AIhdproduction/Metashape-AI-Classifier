@@ -1,5 +1,5 @@
-AIhdproduction Education and Research License 1.0
-Effective date: 2026-10-09
+AIhdproduction Education and Research License 1.1
+Effective date: 2026-11-22
 
 Copyright (c) 2026 AIhdproduction. All rights reserved except as expressly
 granted below.
@@ -7,7 +7,8 @@ granted below.
 1. Scope and ownership
 
 This license applies to the original code, scripts, configuration and
-documentation of the Metashape SAM 3 Point Cloud Classifier (the "Software")
+documentation of the Metashape AI Classifier (formerly Metashape SAM 3 Point
+Cloud Classifier) (the "Software")
 made available by AIhdproduction (the "Licensor"), except material identified
 as being under separate terms.
 
@@ -18,12 +19,17 @@ software, models, methods, user data or user-created results. Contributors
 retain ownership of their original contributions unless separately agreed.
 No right to use the Licensor's names or marks to imply endorsement is granted.
 
-2. Free permission for noncommercial education and research
+2. Free permission for noncommercial private use, education and research
 
 Subject to this license, the Licensor grants you a worldwide, nonexclusive,
 royalty-free license to access, run, copy, study and modify the Software
-solely for noncommercial education and noncommercial research. No individual
-request, registration or license fee is required for these permitted uses.
+solely for noncommercial private use, noncommercial education and
+noncommercial research. No individual request, registration or license fee
+is required for these permitted uses.
+
+Private use means use by an individual for personal purposes, such as hobby
+projects or their own home, without payment and not for a business, employer
+or client.
 
 Permitted uses include school and university teaching, coursework, student
 projects, theses, academic research and independent noncommercial research.
@@ -57,7 +63,7 @@ access to the repository does not constitute permission. A separate written
 agreement takes precedence only to the extent expressly stated in it.
 
 Request permission from AIhdproduction through the project's issue tracker:
-https://github.com/AIhdproduction/metashape-sam3-classifier/issues
+https://github.com/AIhdproduction/Metashape-AI-Classifier/issues
 State the intended use and the person or organization requesting permission.
 Do not post confidential project or client information in a public issue.
 
@@ -91,10 +97,10 @@ where none exist or remove rights held by other parties.
 
 The Software license does not automatically become the copyright license
 of a generated result. You may publish and share results of permitted
-noncommercial education and research, including in papers, theses and
-research datasets, subject to rights in the input data and applicable
-third-party terms. Merely sharing such results does not require distributing
-the Software or model weights.
+noncommercial private use, education and research, including in papers,
+theses and research datasets, subject to rights in the input data and
+applicable third-party terms. Merely sharing such results does not require
+distributing the Software or model weights.
 
 As a condition of the permission granted here, your generation of results
 for a commercial purpose and your subsequent commercial exploitation of
@@ -104,23 +110,33 @@ ownership over results or a separate license imposed on every recipient
 of a result.
 
 When publishing research or educational results produced with the Software,
-acknowledge "Metashape SAM 3 Point Cloud Classifier, AIhdproduction" and link
-to https://github.com/AIhdproduction/metashape-sam3-classifier where practical.
+acknowledge "Metashape AI Classifier, AIhdproduction" and link
+to https://github.com/AIhdproduction/Metashape-AI-Classifier where practical.
 Third-party acknowledgments, including those required by Meta, also apply.
 
 6. Third-party components
 
 This license covers only rights the Licensor is entitled to grant. SAM 3,
-Agisoft Metashape and other dependencies remain subject to their own licenses.
+FlurSeg, DINOv3, Agisoft Metashape and other dependencies remain subject to
+their own licenses.
 This license neither replaces nor relaxes those terms, and permission from
 the Licensor does not grant permission on behalf of their respective owners.
 Restrictions here do not relicense third-party components.
 
-SAM 3 code and model weights are subject to Meta's SAM License. Model weights
-are not included in this repository; users obtain them separately and must
-accept and comply with the applicable Meta terms. The installer obtains
-SAM 3 code separately from its upstream repository. See THIRD_PARTY_NOTICES.md
-for the pinned upstream license and model access links.
+SAM 3 code and model weights are subject to Meta's SAM License. FlurSeg model
+weights, although trained by the Licensor, are not covered by this license;
+they are subject to Meta's DINOv3 License. Built with DINOv3.
+
+Neither model's weights are included in this repository; users obtain them
+separately and must accept and comply with the applicable Meta terms. The
+installer obtains SAM 3 code separately from its upstream repository. The
+purpose restrictions of this license apply to the Software and neither add
+to nor replace the terms of those model licenses.
+
+Copies of both agreements are in licenses/SAM3_LICENSE.txt and
+licenses/FLURSEG_DINOV3_LICENSE.md. They are provided for reference and cover
+only those materials, not the Software. See THIRD_PARTY_NOTICES.md for the
+pinned upstream licenses and model access links.
 
 7. No warranty; limitation of liability
 

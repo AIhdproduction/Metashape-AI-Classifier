@@ -11,8 +11,9 @@ Everything else is the same for both. The tool creates a **new point-cloud asset
 chunk, saves the project and writes a classified LAS 1.4 file with class legends. The original
 point cloud is preserved. Everything runs locally and offline.
 
-**License:** free for noncommercial education and research. Commercial use requires prior
-written permission from **AIhdproduction**. See [Licences](#licences) and the
+**License 1.1:** free for noncommercial private use (by an individual for personal purposes,
+without payment, not for a business, employer or client), education and research. Every other use
+requires prior written permission from **AIhdproduction**. See [Licences](#licences) and the
 [German summary / deutsche Zusammenfassung](docs/licensing.de.md).
 
 Contents: [Quick start](#quick-start) ·
@@ -500,19 +501,20 @@ So: standard library and Metashape only, 3.9 syntax and no newer functions (for 
 ## Licences
 
 Original project material is licensed under the custom
-**[AIhdproduction Education and Research License 1.0](LICENSE)**, which still uses the project's
-former name "Metashape SAM 3 Point Cloud Classifier". AIhdproduction retains its rights. This is
-source-available software with purpose restrictions.
+**[AIhdproduction Education and Research License 1.1](LICENSE)**. AIhdproduction retains its
+rights. This is source-available software with purpose restrictions.
 
-- **Free without an individual request:** noncommercial teaching, coursework, theses and
-  research, including modification and free redistribution under the licence conditions.
-- **Prior written agreement required:** commercial use, paid client work, internal business use,
-  commercial R&D, products, hosted services and commercial exploitation of results. Academic
-  status alone does not exempt a commercial project.
-- **Your data and results:** AIhdproduction claims no ownership of them. Noncommercial research
-  results may be published and shared; the software licence does not automatically become the
-  licence of those results. Commercial generation or exploitation of results by the licensee
-  requires permission.
+- **Free without an individual request:** noncommercial private use, teaching, coursework, theses
+  and research, including modification and free redistribution under the licence conditions.
+  Private use means an individual's personal purposes, such as hobby projects or their own home,
+  without payment and not for a business, employer or client.
+- **Prior written permission required for every other use,** for example commercial use, paid
+  client work, internal business use, commercial R&D, products, hosted services and commercial
+  exploitation of results. Academic status alone does not exempt a commercial project.
+- **Your data and results:** AIhdproduction claims no ownership of them. Results of noncommercial
+  private use, education and research may be published and shared; the software licence does not
+  automatically become the licence of those results. Commercial generation or exploitation of
+  results by the licensee requires permission.
 - **Requests:** through the
   [issue tracker](https://github.com/AIhdproduction/Metashape-AI-Classifier/issues). Permission
   must be granted expressly in writing before the proposed use.
@@ -522,10 +524,12 @@ available.
 
 Third-party components keep their own terms:
 
-- **FlurSeg weights:** [DINOv3 License](https://ai.meta.com/resources/models-and-libraries/dinov3-license/).
+- **FlurSeg weights:** [DINOv3 License](https://ai.meta.com/resources/models-and-libraries/dinov3-license/)
+  ([copy](licenses/FLURSEG_DINOV3_LICENSE.md)).
   **Built with DINOv3.** The architecture is [EoMT](https://github.com/tue-mps/eomt) (MIT).
 - **SAM 3 code and weights:**
-  [Meta's SAM License](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE).
+  [Meta's SAM License](https://github.com/facebookresearch/sam3/blob/0570b3a5be9c4e694f23d85232fb55f4a6f1f7fc/LICENSE)
+  ([copy](licenses/SAM3_LICENSE.txt)).
 - Both models must be acknowledged in research publications that use them. Using only generated
   outputs does not exempt the person running a model from its terms.
 - **NiceGUI** (MIT) and **Transformers** (Apache-2.0). Metashape needs its own licence.
