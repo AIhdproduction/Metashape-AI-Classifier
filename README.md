@@ -4,7 +4,8 @@
 
 Classify a finished Metashape dense point cloud from its original photographs. You choose the model:
 
-- **FlurSeg** (default): our own model, **approx. 15× faster** in segmentation, 11 fixed classes.
+- **FlurSeg** (default): our own model, **6.1× faster** in segmentation and voting in one
+  291-photo Metashape run, 11 fixed classes.
 - **SAM 3** (option): finds **your own classes** through English text prompts, and is much slower.
 
 Everything else is the same for both. The tool creates a **new point-cloud asset** in the same
@@ -105,7 +106,7 @@ py -3.12 -m venv .venv
 
 | | **FlurSeg v1** (default) | **SAM 3** (option) |
 |---|---|---|
-| Segmentation speed | approx. 15× faster (see below) | reference |
+| Segmentation and voting | 6.1× faster in one 291-photo Metashape run (see below) | reference |
 | Classes | 11, fixed in the weights | 16 standard classes, editable, plus your own |
 | Own classes or prompts | no | yes, English prompts |
 | Accuracy in the model card's test | mIoU 0.732 | mIoU 0.833, more accurate |
@@ -118,15 +119,42 @@ py -3.12 -m venv .venv
 Take **FlurSeg** for normal production runs. Take **SAM 3** when you need a class that FlurSeg
 does not have, or when accuracy on small objects matters more than time.
 
-### What "15× faster" means
+### Measured Metashape run: 291 photos
 
-- It is the **segmentation**, measured in the SAMcloud drone test: approx. 2 s instead of 30 s
-  per photo. **Export, point voting and import do not get faster**, and the factor varies with
+Both completed runs used the same `Test_script` project with **291 photos** and **83,003,684
+points**. The app's final screens report these times:
+
+| Step | FlurSeg v1 | SAM 3 |
+|---|---:|---:|
+| Preparation | 00:00:17 | 00:00:13 |
+| Export from Metashape | 00:02:15 | 00:02:12 |
+| **Segmentation and voting** | **00:19:41** | **01:59:34** |
+| Import and LAS | 00:02:19 | 00:02:46 |
+| **Total** | **00:24:33** | **02:04:47** |
+
+In this run, FlurSeg was **6.1× faster** in segmentation and voting; the complete
+workflow was **5.1× faster**. These are observations from one project, not a general speed
+guarantee. The models used different class lists; these screens do not measure classification
+accuracy. The screenshots do not show the hardware or resolution profile.
+
+**FlurSeg result**
+
+![FlurSeg completed run with 291 photos, 83,003,684 points and a total time of 00:24:33](docs/benchmarks/flurseg-291-images.png)
+
+**SAM 3 result**
+
+![SAM 3 completed run with 291 photos, 83,003,684 points and a total time of 02:04:47](docs/benchmarks/sam3-291-images.png)
+
+### Other speed measurements
+
+- The **15× figure** covers segmentation in the SAMcloud drone test: approx. 2 s instead of 30 s
+  per photo. It does not measure export, point voting or import, and the factor varies with
   the resolution.
 - The [model card](https://huggingface.co/AIhdproduction/Flurseg) reports another benchmark on
   9 images: **7.6× faster** (6.0 s instead of 45.6 s per image). There **SAM 3 was more accurate**
   (mIoU 0.833 against 0.732).
-- **Neither figure was measured in this Metashape pipeline.** It has not been benchmarked here.
+- The 15× and 7.6× figures come from other tests. The 291-photo run above is a measurement in
+  this Metashape pipeline and includes a separate end-to-end comparison.
 - The app's time estimate does not use these factors. It counts image windows or tiles and uses
   this project's earlier runs with the same model. Without such runs it assumes 0.09 s per
   FlurSeg window (measured in fp32 on an RTX 4090). It is labelled as an estimate.
@@ -480,9 +508,9 @@ classified cloud before delivery.
 Voting representatives and their search trees need RAM; `voting.max_ram_gb` governs the vote
 matrix only. Very large clouds may need larger voxels.
 
-**The complete workflow with FlurSeg in a real Metashape has not been run yet.** What was and was
-not tested is listed in [docs/verification.md](docs/verification.md); the checks for the first
-real run are in [docs/method.md](docs/method.md#to-be-verified-on-first-real-run).
+The 291-photo run above completed the real Metashape workflow for both models. The earlier
+automated verification record is in [docs/verification.md](docs/verification.md); additional
+dataset-specific checks are listed in [docs/method.md](docs/method.md#to-be-verified-on-first-real-run).
 
 ## Development
 
