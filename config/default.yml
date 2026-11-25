@@ -44,6 +44,7 @@ visibility:
   abs_tolerance_m: 0.02 # Fallback absolute depth slack in metres.
   mask_interior_px: 2 # Cached-mask pixels required between a vote and every class boundary.
   min_mask_confidence: 0.5 # SAM 3: a pixel below this never votes. FlurSeg uses flurseg.min_mask_confidence.
+  no_erosion_classes: [curb, road_marking, utility_cover] # Thin or small: eroding their masks leaves no vote.
 voting:
   voxel_size_m: 0.03 # One original representative per metric voxel.
   block_size_m: 10.0 # Spatial block edge length in metres.
@@ -80,16 +81,28 @@ smoothing:
   enabled: false # Optional voting-cloud kNN majority smoothing.
   k: 8 # Number of neighbours, including the point itself.
   max_share_to_change: 0.6 # Only change lower-share decided points.
+  protected_classes: [curb, road_marking, utility_cover]
 postprocess:
   enabled: true # Apply the configurable geometry and neighbourhood cleanup after voting.
   output_subdir: "post_sam_filter" # Per-chunk report folder below work/.
   neighborhood_radius_m: 0.35 # Metric neighbourhood for NPI outlier removal and hole filling.
   neighbors: 16 # Nearest neighbours inspected per representative point.
+  protected_classes: [curb, road_marking, utility_cover] # Never absorbed by road, hole filling or geometry rules.
+  compact_classes:
+    # A manhole or drain cover is small and flat. A larger or non-flat group (drainage channels
+    # along facades, containers) takes the class of its surroundings.
+    utility_cover: {min_length_m: 0.2, max_length_m: 1.5, max_height_span_m: 0.15}
+  geometry_rules:
+    building:
+      include_unknown: true # Restore unknown points only on a supported roof or facade plane.
+      surfaces: [horizontal, vertical] # Fit roofs and facades separately.
   class_rules:
     ground: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.75, max_replaced_confidence: 0.55}
     road: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.55}
     sidewalk: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.75, max_replaced_confidence: 0.5}
     curb: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.45}
+    road_marking: {min_same_neighbors: 2, fill_neighbors: 6, fill_share: 0.75, max_replaced_confidence: 0.4}
+    utility_cover: {min_same_neighbors: 2, fill_neighbors: 5, fill_share: 0.7, max_replaced_confidence: 0.4}
     low_vegetation: {min_same_neighbors: 4, fill_neighbors: 8, fill_share: 0.75, max_replaced_confidence: 0.5}
     tree: {min_same_neighbors: 3, fill_neighbors: 7, fill_share: 0.7, max_replaced_confidence: 0.5}
     building: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.8, max_replaced_confidence: 0.6}
@@ -107,6 +120,7 @@ postprocess:
     radius_m: 0.45
     neighbors: 12
     min_same_neighbors: 4
+    min_same_overrides: {curb: 2, road_marking: 2, utility_cover: 2}
   building:
     enabled: true
     ground_class: "ground"
@@ -126,7 +140,7 @@ postprocess:
     enabled: true
     low_vegetation_class: "low_vegetation"
     high_vegetation_class: "tree" # The existing tree class represents high vegetation.
-    terrain_class_codes: [2, 9, 11, 73, 74] # Trusted ground, water, road, sidewalk and curb support.
+    terrain_class_codes: [2, 9, 11, 73, 74, 75, 82] # Ground, water, road, sidewalk, curb, cover and marking support.
     fallback_terrain_class_codes: [14, 77] # Use power lines and guard rails only where trusted terrain has no support.
     dem_grid_size_m: 0.25 # The in-memory DTM mesh spacing in metres.
     max_dem_nodes: 500000 # Coarsens the grid automatically if a project has more nodes.
@@ -139,6 +153,11 @@ postprocess:
     threshold_tolerance: 0.1 # Keep the model's class inside the 45–55 cm transition band.
     sam_high_min_height_m: 0.4 # Strong hedge/tree evidence of the model may override a DTM only from 40 cm above terrain.
     sam_high_min_share: 0.65 # Flat grass stays low; this only preserves reliable high-vegetation mask shapes.
+  dtm_ground:
+    enabled: true # Low vegetation on a terrain model of the lowest points becomes ground (meadows).
+    cell_size_m: 1.0 # One terrain node per cell: the point at the low height percentile below.
+    percentile: 0.05
+    max_height_m: 0.05 # Raise for more ground (8 cm: 87 % of a mown meadow), lower for less.
   unknown_fill:
     enabled: true # Extend a class only into immediately adjacent unclassified edge points.
     min_same_neighbors: 5

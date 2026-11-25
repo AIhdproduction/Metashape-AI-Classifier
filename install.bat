@@ -23,6 +23,9 @@ if not exist ".venv\Scripts\python.exe" (
 )
 ".venv\Scripts\python.exe" -c "import sys,struct; assert sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8, 'Existing .venv must use 64-bit Python 3.12'"
 if errorlevel 1 goto :failed
+rem A base Python on a network drive makes every start slow; run the .venv on a local copy.
+py -3.12 tools\local_python.py
+if errorlevel 1 goto :failed
 ".venv\Scripts\python.exe" -m pip install --upgrade "pip>=25,<27" "setuptools>=75,<81" wheel
 if errorlevel 1 goto :failed
 ".venv\Scripts\python.exe" -m pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 --index-url https://download.pytorch.org/whl/cu128

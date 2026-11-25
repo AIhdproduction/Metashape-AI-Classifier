@@ -229,6 +229,111 @@ class GroundPostprocessConfig(StrictModel):
     max_offset_m: Annotated[float, Field(gt=0)] = 0.15
 
 
+class ColorGroundPostprocessConfig(StrictModel):
+    """Restore bare terrain that the image model called low vegetation."""
+
+    enabled: bool = False
+    vegetation_class: str = "low_vegetation"
+    ground_class: str = "ground"
+    max_excess_green: Annotated[float, Field(ge=-1, le=1)] = 0.08
+    min_brightness: Probability = 0.05
+
+
+class OtherBuildingPostprocessConfig(StrictModel):
+    """Extend trusted building points into nearby 'other' roof and wall points."""
+
+    enabled: bool = False
+    other_class: str = "other"
+    building_class: str = "building"
+    radius_m: Positive = 0.75
+    # Kerbs, markings and covers that the model called 'other' often lie beside protected
+    # points; candidates this close to a protected class keep their label.
+    protected_clearance_m: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.25
+
+
+SurfaceKind = Literal["horizontal", "vertical", "any"]
+Sectors = Annotated[int, Field(ge=0, le=8)]
+
+
+class GeometryReviewRule(StrictModel):
+    """Move a point to the target class only where the target's local surface carries it.
+
+    The candidate must lie on a plane fitted to nearby target points, its own Metashape normal
+    must agree with that plane, and the plane must surround it. Unclassified points face the
+    stricter ``unknown_*`` limits: they are filled inside a surface, never grown past its edge.
+    """
+
+    source_classes: list[str] = Field(default_factory=list)
+    include_unknown: bool = False
+    # Roofs and facades are separate planes; fitting them together blurs both.
+    surfaces: list[SurfaceKind] = Field(default_factory=lambda: ["any"], min_length=1)
+    # Optional: a source counts only where its own normal faces this way, e.g. {other: [vertical]}.
+    source_surfaces: dict[str, list[SurfaceKind]] = Field(default_factory=dict)
+    normal_vertical_boundary: Probability = 0.55  # |normal z| from here on is horizontal.
+    support_voxel_m: Positive = 0.12
+    horizontal_radius_m: Positive = 4.0
+    vertical_radius_m: Positive = 2.0
+    neighbors: Annotated[int, Field(ge=3, le=64)] = 16
+    min_support_neighbors: Annotated[int, Field(ge=3, le=64)] = 8
+    min_planar_spread_m: Positive = 0.08
+    max_plane_offset_m: Positive = 0.12
+    min_normal_alignment: Probability = 0.8
+    min_coverage_sectors: Sectors = 0
+    unknown_radius_m: Positive = 0.2
+    unknown_max_plane_offset_m: Positive = 0.08
+    unknown_min_normal_alignment: Probability = 0.85
+    unknown_min_coverage_sectors: Sectors = 7
+    # Candidates this close to a protected thin class (kerb, marking, cover) stay unchanged.
+    protected_clearance_m: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.25
+
+    @model_validator(mode="after")
+    def check_support_count(self):
+        if self.min_support_neighbors > self.neighbors:
+            raise ValueError("geometry min_support_neighbors exceeds neighbors")
+        if len(set(self.surfaces)) != len(self.surfaces):
+            raise ValueError("geometry surfaces are listed twice")
+        return self
+
+
+class CompactClassRule(StrictModel):
+    """A class of small, flat objects: groups outside these limits take their surroundings."""
+
+    min_length_m: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.2
+    max_length_m: Positive = 1.5
+    max_height_span_m: Positive = 0.15
+    link_m: Positive = 0.1  # Points closer than this belong to one object.
+
+    @model_validator(mode="after")
+    def check_lengths(self):
+        if self.min_length_m >= self.max_length_m:
+            raise ValueError("compact class min_length_m must be below max_length_m")
+        return self
+
+
+class DtmGroundPostprocessConfig(StrictModel):
+    """Low vegetation lying on a terrain model of the lowest points becomes ground.
+
+    Photogrammetry sees the top of a meadow, not the soil. Per grid cell, a low percentile of
+    the ground and low-vegetation heights (along the true vertical) forms a terrain node; nodes
+    far below or above their neighbours are dropped, and each node gets a local plane. Low
+    vegetation at most ``max_height_m`` above that plane is ground. Runs after the neighbourhood
+    filters, which would otherwise dissolve the low vegetation left in between.
+    """
+
+    enabled: bool = True
+    ground_class: str = "ground"
+    vegetation_class: str = "low_vegetation"
+    support_classes: list[str] = Field(default_factory=lambda: ["ground", "low_vegetation"])
+    cell_size_m: Positive = 1.0
+    percentile: Probability = 0.05
+    min_cell_points: Annotated[int, Field(ge=1)] = 5
+    max_height_m: Positive = 0.05
+    max_depth_m: Positive = 0.3  # Further below the terrain is noise and keeps its label.
+    max_node_drop_m: Positive = 0.25
+    max_node_rise_m: Positive = 1.0
+    max_slope_degrees: Annotated[float, Field(gt=0, le=90)] = 60
+
+
 class VegetationPostprocessConfig(StrictModel):
     """Split mixed vegetation clusters by height above an in-memory terrain DEM."""
 
@@ -289,6 +394,11 @@ class PostprocessConfig(StrictModel):
 
     enabled: bool = True
     output_subdir: str = "post_sam_filter"
+    # Metashape's internal frame is not levelled (31.7 degrees in the 291-photo test project).
+    # True rotates all post-filters to the vertical estimated from the point cloud; their
+    # thresholds were calibrated in the internal frame, so this is off until recalibrated.
+    # Roof/facade checks always use that vertical.
+    level_to_vertical: bool = False
     neighborhood_radius_m: Positive = 0.35
     neighbors: Annotated[int, Field(ge=2, le=64)] = 16
     class_rules: dict[str, ClassPostprocessRule] = Field(default_factory=dict)
@@ -297,7 +407,14 @@ class PostprocessConfig(StrictModel):
     cluster: ClusterPostprocessConfig = Field(default_factory=ClusterPostprocessConfig)
     building: BuildingPostprocessConfig = Field(default_factory=BuildingPostprocessConfig)
     ground: GroundPostprocessConfig = Field(default_factory=GroundPostprocessConfig)
+    color_ground: ColorGroundPostprocessConfig = Field(default_factory=ColorGroundPostprocessConfig)
+    other_building: OtherBuildingPostprocessConfig = Field(
+        default_factory=OtherBuildingPostprocessConfig
+    )
+    geometry_rules: dict[str, GeometryReviewRule] = Field(default_factory=dict)
     vegetation: VegetationPostprocessConfig = Field(default_factory=VegetationPostprocessConfig)
+    dtm_ground: DtmGroundPostprocessConfig = Field(default_factory=DtmGroundPostprocessConfig)
+    compact_classes: dict[str, CompactClassRule] = Field(default_factory=dict)
     unknown_fill: UnknownFillConfig = Field(default_factory=UnknownFillConfig)
     planar_unknown_fill: PlanarUnknownFillConfig = Field(default_factory=PlanarUnknownFillConfig)
     road: RoadPostprocessConfig = Field(default_factory=RoadPostprocessConfig)

@@ -80,11 +80,74 @@ def convert_records(records, header):
     return converted
 
 
+def _clear_spilled_flags(converted, source_format_id: int, code: int) -> None:
+    """Drop flag bits that Metashape filled with the upper bits of a class code.
+
+    Point formats 0-5 hold the class in five bits; the next three bits are the synthetic,
+    key-point and withheld flags. Metashape writes the whole code into that byte, so code 67
+    arrives as class 3 with the key-point flag set. Those bits are not flags of the point.
+    """
+    if source_format_id < 6 and code >= 32:
+        cleared = np.zeros(len(converted), dtype=np.uint8)
+        converted.synthetic = cleared
+        converted.key_point = cleared
+        converted.withheld = cleared
+
+
+def _temporary_path(output: Path) -> Path:
+    # Keep the real suffix: laspy compresses exactly when the written name ends in .laz.
+    return output.with_name(output.stem + ".tmp" + output.suffix)
+
+
+def _require_writer(output: Path) -> None:
+    if output.suffix.lower() not in (".las", ".laz"):
+        raise ValueError(f"Final point cloud must end in .las or .laz: {output}")
+    if output.suffix.lower() == ".laz" and not laspy.LazBackend.detect_available():
+        raise RuntimeError(
+            "Writing LAZ needs the 'lazrs' package (pip install lazrs). "
+            "Choose a .las file name or install lazrs."
+        )
+
+
+def describe_output(path: Path, parts: list[dict] | None = None) -> dict:
+    """Check the delivered file's header and, cheaply, the first point of every class part."""
+    # absolute(), not resolve(): the user should see the name they chose, not a link target.
+    path = Path(path).absolute()
+    with laspy.open(path) as reader:
+        header = reader.header
+        version = f"{header.version.major}.{header.version.minor}"
+        format_id = header.point_format.id
+        if (header.version.major, header.version.minor) < (1, 4) or format_id < 6:
+            raise RuntimeError(
+                f"{path} is LAS {version} point format {format_id}; class codes above 31 "
+                "need LAS 1.4 with point format 6 or higher"
+            )
+        offset = 0
+        for part in parts or []:
+            reader.seek(offset)
+            point = reader.read_points(1)
+            flags = (point.key_point[0], point.withheld[0], point.synthetic[0])
+            if int(point.classification[0]) != int(part["code"]) or (
+                part["code"] >= 32 and any(bool(flag) for flag in flags)
+            ):
+                raise RuntimeError(f"{path}: class {part['code']} was not written unchanged")
+            offset += int(part["count"])
+        return {
+            "path": str(path),
+            "las_version": version,
+            "point_format": format_id,
+            "compressed": path.suffix.lower() == ".laz",
+            "point_count": int(header.point_count),
+            "bytes": path.stat().st_size,
+        }
+
+
 def write_classified(
     source: Path, output: Path, codes, classes: Classes, batch_size: int, model: str | None = None
 ):
     output.parent.mkdir(parents=True, exist_ok=True)
-    temp = output.with_suffix(".tmp.las")
+    _require_writer(output)
+    temp = _temporary_path(output)
     counts = np.zeros(256, dtype=np.int64)
     with laspy.open(source) as reader:
         if reader.header.point_count != len(codes):
@@ -130,15 +193,18 @@ def merge_class_exports(
         np.max([h.scales for h in headers], axis=0), (high - low) / (2**32 - 2)
     )
     output.parent.mkdir(parents=True, exist_ok=True)
-    temp = output.with_suffix(".tmp.las")
+    _require_writer(output)
+    temp = _temporary_path(output)
     counts = np.zeros(256, dtype=np.int64)
     with laspy.open(temp, mode="w", header=header) as writer:
         for part in parts:
             with laspy.open(part["path"]) as reader:
+                source_format = reader.header.point_format.id
                 for points in reader.chunk_iterator(batch_size):
                     converted = convert_records(points, header)
                     labels = np.full(len(points), part["code"], dtype=np.uint8)
                     converted.classification = labels
+                    _clear_spilled_flags(converted, source_format, part["code"])
                     writer.write_points(converted)
                     counts[part["code"]] += len(points)
     temp.replace(output)

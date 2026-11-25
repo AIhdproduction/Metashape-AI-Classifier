@@ -1,6 +1,7 @@
 """Conservative per-image filters applied before 2D labels vote on 3D points."""
 
 import numpy as np
+from scipy.ndimage import maximum_filter, minimum_filter
 
 
 def interior_labels(labels, confidence, margin, min_confidence, no_erosion=()):
@@ -16,28 +17,15 @@ def interior_labels(labels, confidence, margin, min_confidence, no_erosion=()):
         raise ValueError("labels and confidence must be equally sized two-dimensional arrays")
     accepted = (labels != 255) & np.isfinite(confidence) & (confidence >= min_confidence)
     exempt = accepted & np.isin(labels, list(no_erosion)) if no_erosion else None
-    for _ in range(margin):
-        eroded = accepted.copy()
-        for dy, dx in (
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ):
-            neighbour_labels = np.full_like(labels, 255)
-            neighbour_accepted = np.zeros_like(accepted)
-            target_y = slice(max(0, dy), labels.shape[0] + min(0, dy))
-            target_x = slice(max(0, dx), labels.shape[1] + min(0, dx))
-            source_y = slice(max(0, -dy), labels.shape[0] - max(0, dy))
-            source_x = slice(max(0, -dx), labels.shape[1] - max(0, dx))
-            neighbour_labels[target_y, target_x] = labels[source_y, source_x]
-            neighbour_accepted[target_y, target_x] = accepted[source_y, source_x]
-            eroded &= neighbour_accepted & (labels == neighbour_labels)
-        accepted = eroded
+    if margin:
+        # A vote needs the whole square neighbourhood to be accepted and to have
+        # the same class. Separable min/max filters avoid sixteen full-image copies
+        # for the usual two-pixel margin.
+        size = 2 * margin + 1
+        accepted = minimum_filter(accepted, size=size, mode="constant", cval=0)
+        lowest = minimum_filter(labels, size=size, mode="constant", cval=255)
+        highest = maximum_filter(labels, size=size, mode="constant", cval=255)
+        accepted &= (lowest == labels) & (highest == labels)
     if exempt is not None:
         accepted |= exempt
     return np.where(accepted, labels, 255).astype(np.uint8, copy=False)

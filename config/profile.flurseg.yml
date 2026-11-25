@@ -14,6 +14,17 @@ smoothing:
   protected_classes: [curb, road_marking, utility_cover]
 postprocess:
   protected_classes: [curb, road_marking, utility_cover]
+  geometry_rules:
+    building:
+      # Measured against SAM 3 on the 291-photo project (docs/benchmarks): construction on
+      # roofs -> building 94 %, other on facades -> building 90 %. Flat 'other' (14 %) and
+      # facade 'construction' (77 %, often scaffolding) stay; low_vegetation is never a source.
+      source_classes: [other, construction]
+      source_surfaces: {other: [vertical], construction: [horizontal]}
+  # Calibrated against the SAM 3 cloud in the 291-photo Test_script project.
+  # Only Metashape terrain candidates are considered for the colour correction.
+  color_ground: {enabled: true, vegetation_class: low_vegetation, ground_class: ground, max_excess_green: 0.08}
+  other_building: {enabled: true, other_class: other, building_class: building, radius_m: 0.75}
   class_rules:
     other: {min_same_neighbors: 3, fill_neighbors: 8, fill_share: 0.8, max_replaced_confidence: 0.45}
     ground: {min_same_neighbors: 5, fill_neighbors: 9, fill_share: 0.75, max_replaced_confidence: 0.55}

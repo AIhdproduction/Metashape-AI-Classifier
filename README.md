@@ -137,6 +137,9 @@ workflow was **5.1× faster**. These are observations from one project, not a ge
 guarantee. The models used different class lists; these screens do not measure classification
 accuracy. The screenshots do not show the hardware or resolution profile.
 
+An [additional point-cloud comparison](docs/benchmarks/flurseg-filter-291-images.md) records
+how the updated FlurSeg filters agree with the existing SAM 3 result on this project.
+
 **FlurSeg result**
 
 ![FlurSeg completed run with 291 photos, 83,003,684 points and a total time of 00:24:33](docs/benchmarks/flurseg-291-images.png)
@@ -440,6 +443,17 @@ replaces the file, also one of the other model. The CLI writes to
   the Metashape stage logs for the CLI.
 
 LAS 1.4 lookup names have at most 15 characters; the full names are in the legends.
+
+When the run is complete, the app's result page, the Metashape message and the CLI show the full
+path of this file together with its checked format (LAS 1.4, point format 7). Use this file. A
+LAS/LAZ export of your own from Metashape is LAS 1.2, which keeps only classes 0–31: FlurSeg
+`construction` (67), for example, then appears as `low_vegetation` (3).
+
+**Slow start of the window:** `install.bat` checks where the Python of `.venv` comes from. On a
+network drive every process loaded the standard library over the network (in one office: 8.5 s
+to import the window's web framework instead of 0.8 s). It then copies that Python once into
+`.python-local\` (about 40 MB, without packages) and points `.venv` at it; the installed
+packages stay. The previous setting is kept as `.venv\pyvenv.cfg.network`.
 
 ## Configuration and tuning
 

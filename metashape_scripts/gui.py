@@ -64,6 +64,28 @@ def log_tail(path, count=12):
     return "\n".join(lines[-count:])
 
 
+def final_las_message(session):
+    """Name the verified LAS files; a native Metashape LAS/LAZ export would truncate codes."""
+    try:
+        result = json.loads((session / "finalize_done.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    files = result.get("files") or [{"path": path} for path in result.get("outputs", [])]
+    if not files:
+        return ""
+    lines = ["", "", "Fertige LAS-Datei mit allen Klassencodes:"]
+    for item in files:
+        details = ""
+        if "las_version" in item:
+            details = " (LAS {}, Punktformat {})".format(item["las_version"], item["point_format"])
+        lines.append(item["path"] + details)
+    lines.append(
+        "Diese Datei verwenden: Ein eigener LAS/LAZ-Export aus Metashape (LAS 1.2) "
+        "kürzt Klassencodes über 31."
+    )
+    return "\n".join(lines)
+
+
 def stop_process(process):
     """End a child of this launcher. The venv's launcher exe takes its Python process along."""
     try:
@@ -442,6 +464,8 @@ def start():
             message += " zeigt die Originalfarben aus den Fotos."
         else:
             message += " zeigt die Klassen."
+        message += final_las_message(session)
+        say(message)
         Metashape.app.messageBox(message)
     except UserCancelled:
         if session is not None:

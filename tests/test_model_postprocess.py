@@ -3,7 +3,12 @@ import pytest
 
 from msam3 import backends, user_classes
 from msam3.config import SmoothingConfig, load_classes, load_settings
-from msam3.pointcloud.postprocess import apply_postprocess
+from msam3.pointcloud.postprocess import (
+    _restore_bare_ground,
+    _restore_other_buildings,
+    _review_geometry_by_class,
+    apply_postprocess,
+)
 from msam3.pointcloud.smoothing import smooth
 from msam3.pointcloud.voting import Votes, apply_ground_assist, apply_vegetation_assist
 
@@ -15,6 +20,78 @@ def flurseg():
     classes = FLURSEG.classes()
     settings = FLURSEG.apply_profile(load_settings(), classes)
     return settings, classes
+
+
+def test_flurseg_bare_ground_uses_colour_and_source_terrain(flurseg):
+    settings, classes = flurseg
+    labels = np.array([3, 3, 3, 3, 74], dtype=np.uint8)
+    colors = np.array(
+        [
+            [30000, 30500, 29000],
+            [5000, 30000, 5000],
+            [30000, 30500, 29000],
+            [0, 0, 0],
+            [30000, 30500, 29000],
+        ],
+        dtype=np.uint16,
+    )
+    hint = np.array([True, True, False, True, True])
+    changed = _restore_bare_ground(labels, classes, settings.postprocess, hint, colors, 2)
+    assert changed == 1
+    assert labels.tolist() == [2, 3, 3, 3, 74]
+
+
+def test_flurseg_other_near_building_is_restored_without_touching_thin_classes(flurseg):
+    settings, classes = flurseg
+    points = np.array([[0, 0, 1], [0.2, 0, 1], [3, 0, 1], [0.6, 0, 1], [0.5, 0, 1]])
+    labels = np.array([6, 64, 64, 74, 64], dtype=np.uint8)
+    changed = _restore_other_buildings(points, labels, classes, settings.postprocess, 2)
+    # The last 'other' is near the building, but 10 cm from a kerb: it may be the kerb itself.
+    assert changed == 1
+    assert labels.tolist() == [6, 6, 64, 74, 64]
+
+
+@pytest.mark.parametrize("backend", ["flurseg", "sam3"])
+def test_geometry_review_repairs_roof_and_facade_without_absorbing_vegetation(backend):
+    model = backends.MODELS[backend]
+    classes = model.classes()
+    settings = model.apply_profile(load_settings(), classes)
+    roof = np.array(
+        [[x, y, 2.0] for x in np.arange(0, 1.5, 0.15) for y in np.arange(0, 1.5, 0.15)],
+        dtype=np.float32,
+    )
+    wall = np.array(
+        [[0.0, y, z] for y in np.arange(0, 1.5, 0.15) for z in np.arange(0, 1.5, 0.15)],
+        dtype=np.float32,
+    )
+    candidates = np.array(
+        [
+            [0.75, 0.75, 2.0],
+            [0.0, 0.75, 0.75],
+            [0.75, 0.75, 2.4],
+            [0.75, 0.60, 2.0],
+            [0.0, 0.60, 0.60],
+        ],
+        dtype=np.float32,
+    )
+    points = np.vstack((roof, wall, candidates))
+    normals = np.vstack(
+        (
+            np.tile([0, 0, 1], (len(roof), 1)),
+            np.tile([1, 0, 0], (len(wall), 1)),
+            [[0, 0, 1], [1, 0, 0], [0, 0, 1], [0, 0, 1], [1, 0, 0]],
+        )
+    ).astype(np.float32)
+    wrong_roof = 67 if backend == "flurseg" else 1
+    labels = np.array(
+        [6] * (len(roof) + len(wall)) + [wrong_roof, 1, wrong_roof, 3, 1],
+        dtype=np.uint8,
+    )
+    changes = _review_geometry_by_class(
+        points, labels, normals, classes, settings.postprocess, batch_size=100
+    )
+    assert labels[-5:].tolist() == [6, 6, wrong_roof, 3, 6]
+    assert changes["building"]
 
 
 def noisy_road(seed=4):

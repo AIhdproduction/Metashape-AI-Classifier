@@ -5,7 +5,7 @@ classes:
   - name: ground
     code: 2
     prompts: [ground, terrain, soil, bare earth, stone, stones, gravel, boulder]
-    color: "#663300" # Cyclone 3DR: Ground (class 2).
+    color: "#A0522D" # Colour as FlurSeg; LAS code: Cyclone 3DR: Ground (class 2).
   - name: road
     code: 11
     prompts: [asphalt road for vehicles, vehicle carriageway, street roadway, drivable asphalt]
@@ -17,27 +17,35 @@ classes:
   - name: curb
     code: 74
     prompts: [curb, kerb, curb stone, edge stone]
-    color: "#A51464" # Cyclone 3DR: Curbstone (class 74).
+    color: "#00BCD4" # Colour as FlurSeg; LAS code: Cyclone 3DR: Curbstone (class 74).
+  - name: road_marking
+    code: 82
+    prompts: [road marking, painted road line, zebra crossing, painted arrow on road]
+    color: "#FFFFFF" # Same code and colour as FlurSeg's road_marking.
+  - name: utility_cover
+    code: 75
+    prompts: [manhole cover, utility cover, drain grate, sewer grate, gully cover, valve cover]
+    color: "#E040FB" # Same code and colour as FlurSeg's utility_cover.
   - name: low_vegetation
     code: 3
     prompts: [low vegetation, short grass, lawn, low ground cover]
-    color: "#009600" # Cyclone 3DR: Low Vegetation (class 3).
+    color: "#9CCC65" # Colour as FlurSeg; LAS code: Cyclone 3DR: Low Vegetation (class 3).
   - name: tree
     code: 5
     prompts: [tree, tall vegetation, tree canopy, foliage, hedge, hedgerow, bush, shrub]
-    color: "#004100" # ASPRS LAS: High Vegetation (class 5).
+    color: "#1B5E20" # Colour as FlurSeg; LAS code: ASPRS LAS: High Vegetation (class 5).
   - name: building
     code: 6
     prompts: [building, house, facade, exterior wall]
-    color: "#FF0000" # Cyclone 3DR: Building (class 6).
+    color: "#E53935" # Colour as FlurSeg; LAS code: Cyclone 3DR: Building (class 6).
   - name: vehicle
     code: 91
     prompts: [vehicle, car, van, truck]
-    color: "#F07314" # Cyclone 3DR: Vehicle (class 91).
+    color: "#FFEB3B" # Colour as FlurSeg; LAS code: Cyclone 3DR: Vehicle (class 91).
   - name: construction_machinery
     code: 67
     prompts: [construction machinery, excavator, digger, bulldozer, loader]
-    color: "#F1C232" # Cyclone 3DR: Moving object (67); Worksite equipment 151 is not importable by Metashape.
+    color: "#FF9800" # Colour as FlurSeg; LAS code: Cyclone 3DR: Moving object (67); Worksite equipment 151 is not importable by Metashape.
   - name: utility_pole
     code: 84
     prompts: [utility pole, light pole, streetlight, lamp post]

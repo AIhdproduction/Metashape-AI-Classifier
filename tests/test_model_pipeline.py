@@ -81,6 +81,9 @@ def expected_codes(backend, truth, classes):
 def test_end_to_end_with_both_class_sets(site, backend):
     _, chunk, settings, truth = site
     settings.segmentation.backend = backend
+    # The synthetic site is one flat plane: every class lies on the terrain, so the terrain
+    # model would rightly call its low vegetation ground. This test is about the class sets.
+    settings.postprocess.dtm_ground.enabled = False
     model = backends.MODELS[backend]
     classes = model.classes()
     fake = FakeFlurSeg() if backend == "flurseg" else FakeSam()

@@ -121,11 +121,13 @@ class Chunk:
     def exportPointCloud(self, path, point_clouds, classes=None, **options):
         cloud = next(item for item in self.point_clouds if item.key == point_clouds[0])
         keep = np.ones(len(cloud.codes), bool) if classes is None else np.isin(cloud.codes, classes)
-        las = laspy.create(point_format=7, file_version="1.4")
+        # Like Metashape 2.3.1: LAS 1.2 point format 2, with the whole code in the byte that
+        # holds a five-bit class and the synthetic/key-point/withheld flags. 67 reads as 3.
+        las = laspy.create(point_format=2, file_version="1.2")
         las.header.offsets, las.header.scales = np.zeros(3), np.full(3, 0.001)
         las.x, las.y, las.z = cloud.xyz[keep].T
         las.red = np.full(int(keep.sum()), 12345, np.uint16)
-        las.classification = cloud.codes[keep]
+        las.points.array["raw_classification"] = cloud.codes[keep]
         las.write(path)
 
     def importPointCloud(self, path, **options):

@@ -14,7 +14,7 @@ from msam3.cache import LabelCache, json_hash
 from msam3.camera_model import Camera
 from msam3.config import Classes, Settings
 from msam3.driver import project_state
-from msam3.pointcloud.las_io import merge_class_exports
+from msam3.pointcloud.las_io import describe_output, merge_class_exports
 from msam3.pointcloud.spatial import (
     representative_class_mask,
     representative_classifications,
@@ -199,6 +199,18 @@ def test_representative_class_mask_reads_only_requested_indices(tmp_path):
         3,
         2,
     ]
+    cloud.red = [10, 20, 30, 40, 50, 60]
+    cloud.green = [11, 21, 31, 41, 51, 61]
+    cloud.blue = [12, 22, 32, 42, 52, 62]
+    cloud.write(path)
+    from msam3.pointcloud.spatial import representative_attributes
+
+    labels, colors, normals = representative_attributes(
+        path, np.array([1, 2, 5]), 2, include_rgb=True
+    )
+    assert labels.tolist() == [2, 3, 2]
+    assert colors.tolist() == [[20, 21, 22], [30, 31, 32], [60, 61, 62]]
+    assert normals is None
 
 
 def test_block_covering_entire_image_not_culled():
@@ -253,3 +265,74 @@ def test_merge_metashape_class_partitions(tmp_path):
     assert counts[64] == 2
     with pytest.raises(ValueError, match="count"):
         merge_class_exports([{"path": str(path), "code": 64, "count": 3}], output, classes, "", 1)
+
+
+def _metashape_part(path, code, count):
+    """A class part as Metashape 2.3.1 writes it: LAS 1.2/PF2 with the full code in one byte."""
+    part = laspy.create(point_format=2, file_version="1.2")
+    part.x = np.arange(count, dtype=float)
+    part.y, part.z = np.zeros(count), np.zeros(count)
+    part.points.array["raw_classification"] = code
+    part.write(path)
+    return {"path": str(path), "code": code, "count": count}
+
+
+def test_merge_keeps_codes_and_drops_flag_bits_of_truncated_codes(tmp_path):
+    classes = Classes.model_validate(
+        {
+            "classes": [
+                {"name": "ground", "code": 2, "prompts": ["g"], "color": "#111111"},
+                {"name": "construction", "code": 67, "prompts": ["c"], "color": "#222222"},
+                {"name": "pipe", "code": 110, "prompts": ["p"], "color": "#333333"},
+            ]
+        }
+    )
+    parts = [
+        _metashape_part(tmp_path / "a.las", 2, 2),
+        _metashape_part(tmp_path / "b.las", 67, 3),
+        _metashape_part(tmp_path / "c.las", 110, 1),
+    ]
+    raw = laspy.read(parts[1]["path"])
+    # The defect being repaired: 67 = 0b1000011 reads as class 3 with the key-point flag.
+    assert list(raw.classification) == [3, 3, 3] and all(raw.key_point)
+    output = tmp_path / "final.las"
+    merge_class_exports(parts, output, classes, 'LOCAL_CS["Local",UNIT["metre",1]]', 2)
+    result = laspy.read(output)
+    assert str(result.header.version) == "1.4" and result.header.point_format.id == 7
+    assert list(result.classification) == [2, 2, 67, 67, 67, 110]
+    assert not any(result.key_point) and not any(result.synthetic) and not any(result.withheld)
+    info = describe_output(output, parts)
+    assert (info["las_version"], info["point_format"], info["point_count"]) == ("1.4", 7, 6)
+    assert info["path"] == str(output.absolute()) and not info["compressed"]
+    with pytest.raises(RuntimeError, match="class 64 was not written"):
+        describe_output(output, [parts[0], {**parts[1], "code": 64}, parts[2]])
+
+
+def test_final_output_refuses_las12_and_unknown_suffix(tmp_path):
+    legacy = tmp_path / "legacy.las"
+    _metashape_part(legacy, 67, 1)
+    with pytest.raises(RuntimeError, match="LAS 1.2 point format 2"):
+        describe_output(legacy)
+    classes = Classes.model_validate(
+        {"classes": [{"name": "c", "code": 67, "prompts": ["c"], "color": "#222222"}]}
+    )
+    part = _metashape_part(tmp_path / "p.las", 67, 1)
+    with pytest.raises(ValueError, match=".las or .laz"):
+        merge_class_exports([part], tmp_path / "final.txt", classes, "", 1)
+
+
+def test_laz_output_is_really_compressed_or_refused(tmp_path):
+    classes = Classes.model_validate(
+        {"classes": [{"name": "c", "code": 67, "prompts": ["c"], "color": "#222222"}]}
+    )
+    part = _metashape_part(tmp_path / "p.las", 67, 2)
+    output = tmp_path / "final.laz"
+    if not laspy.LazBackend.detect_available():
+        with pytest.raises(RuntimeError, match="lazrs"):
+            merge_class_exports([part], output, classes, 'LOCAL_CS["L",UNIT["metre",1]]', 1)
+        assert not output.exists()
+        return
+    merge_class_exports([part], output, classes, 'LOCAL_CS["L",UNIT["metre",1]]', 1)
+    with laspy.open(output) as reader:
+        assert reader.header.are_points_compressed
+    assert list(laspy.read(output).classification) == [67, 67]

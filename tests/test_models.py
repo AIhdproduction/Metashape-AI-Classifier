@@ -124,10 +124,12 @@ def test_sam3_without_class_edits_keeps_todays_settings():
     assert classes == load_classes()
     assert SAM3.apply_profile(settings, classes) == settings
     assert settings.visibility.min_mask_confidence == 0.5
-    assert not settings.visibility.no_erosion_classes
-    assert not settings.postprocess.protected_classes
-    assert not settings.postprocess.cluster.min_same_overrides
-    assert not settings.smoothing.protected_classes
+    # Kerbs, markings and manhole covers are protected for SAM 3 as for FlurSeg.
+    thin = ["curb", "road_marking", "utility_cover"]
+    assert settings.visibility.no_erosion_classes == thin
+    assert settings.postprocess.protected_classes == thin
+    assert settings.postprocess.cluster.min_same_overrides == dict.fromkeys(thin, 2)
+    assert settings.smoothing.protected_classes == thin
 
 
 def test_export_identity_is_shared_between_the_models(tmp_path):
@@ -206,7 +208,7 @@ def test_prepare_checks_only_the_selected_model(tmp_path, monkeypatch, wanted):
     job = json.loads((session / "job.json").read_text(encoding="utf-8"))
     assert job["model"]["backend"] == wanted
     assert checked == [wanted]
-    assert len(job["classes"]["classes"]) == (11 if wanted == "flurseg" else 16)
+    assert len(job["classes"]["classes"]) == (11 if wanted == "flurseg" else 18)
     assert job["settings"]["metashape"]["imported_label"] == backends.MODELS[wanted].asset_label
     choose("sam3" if wanted == "flurseg" else "flurseg")
     with pytest.raises(FileNotFoundError):

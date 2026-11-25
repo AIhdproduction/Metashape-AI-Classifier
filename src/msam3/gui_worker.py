@@ -13,7 +13,7 @@ from msam3 import backends
 from msam3.cache import atomic_json
 from msam3.config import Classes, Settings, load_settings, merge_settings
 from msam3.driver import _execute, export_identity, job_directory, job_lock, prepare_stage3_inputs
-from msam3.pointcloud.las_io import legend, merge_class_exports
+from msam3.pointcloud.las_io import describe_output, legend, merge_class_exports
 
 LOG = logging.getLogger(__name__)
 
@@ -93,6 +93,7 @@ def finalize(session: Path) -> None:
     inputs = {item["directory"]: item for item in job["stage3_inputs"]}
     title = job.get("model", {}).get("title")
     totals = dict.fromkeys(range(256), 0)
+    files = []
     for result in completed["chunks"]:
         source = inputs[result["directory"]]
         counts = merge_class_exports(
@@ -107,10 +108,18 @@ def finalize(session: Path) -> None:
             totals[code] += int(count)
         if int(counts.sum()) != sum(int(value) for value in source["counts"].values()):
             raise RuntimeError("Final LAS point count differs from the imported point cloud")
+        files.append(describe_output(Path(result["output"]), result["parts"]))
+        LOG.info(
+            "Final classified LAS (LAS %s, point format %d, all class codes preserved): %s",
+            files[-1]["las_version"],
+            files[-1]["point_format"],
+            files[-1]["path"],
+        )
     atomic_json(
         session / "finalize_done.json",
         {
-            "outputs": [item["output"] for item in completed["chunks"]],
+            "outputs": [item["path"] for item in files],
+            "files": files,
             "model": job.get("model", {}),
             "label": job["settings"]["metashape"]["imported_label"],
             "point_count": sum(totals.values()),

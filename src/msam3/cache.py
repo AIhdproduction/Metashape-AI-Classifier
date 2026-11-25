@@ -94,7 +94,9 @@ class LabelCache:
         for kind, image in (("labels", label_image), ("confidence", conf_image)):
             path = self.root / f"{key}.{kind}.png"
             temp = path.with_suffix(".tmp")
-            image.save(temp, format="PNG", compress_level=6)
+            # Confidence maps compress poorly at level 6. Level 1 saved about
+            # 0.1 s for one representative test image while keeping lossless PNGs.
+            image.save(temp, format="PNG", compress_level=1)
             temp.replace(path)
             hashes.append(file_hash(path))
         atomic_json(self.root / f"{key}.json", {"identity": identity, "png_hashes": hashes})

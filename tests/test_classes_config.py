@@ -12,6 +12,8 @@ def test_default_codes_and_append():
         "road": 11,
         "sidewalk": 73,
         "curb": 74,
+        "road_marking": 82,
+        "utility_cover": 75,
         "low_vegetation": 3,
         "tree": 5,
         "building": 6,

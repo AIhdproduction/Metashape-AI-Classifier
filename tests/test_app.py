@@ -669,12 +669,12 @@ def test_every_used_text_key_exists():
 
 def test_speed_wording_is_honest():
     german, english = catalogues()
-    assert german["model.flurseg.short"] == "ca. 15× schneller"
-    assert english["model.flurseg.short"] == "approx. 15× faster"
+    assert german["model.flurseg.short"] == "im Test ca. 6× schneller"
+    assert english["model.flurseg.short"] == "approx. 6× faster in the test"
     assert german["model.speed_note"] == (
-        "Segmentierung, gemessen im SAMcloud-Drohnentest (ca. 2 s statt 30 s pro Foto). "
-        "Export, Punkt-Voting und Import werden nicht schneller; je nach Auflösung weicht der "
-        "Faktor ab."
+        "Im Testprojekt mit 291 Fotos: Klassierung und Voting 6,1× schneller, gesamter Ablauf "
+        "5,1× schneller. Die früheren 15× bezogen sich nur auf die Bildsegmentierung in einem "
+        "anderen Test."
     )
 
 
@@ -750,3 +750,18 @@ def test_install_check_names_stale_packages(monkeypatch, capsys):
     monkeypatch.setattr(install_check, "problems", lambda: ["nicegui fehlt"])
     assert install_check.main() == 3
     assert "install.bat" in capsys.readouterr().out
+
+
+def test_result_page_lists_the_checked_final_file_first():
+    from msam3.app.pages.overview import delivered_files, size_text
+
+    path = r"D:\Test Script\export\punktwolke_class.las"
+    checked = {"path": path, "las_version": "1.4", "point_format": 7, "bytes": 3320154892}
+    assert delivered_files({"files": [checked], "outputs": [path]}) == [checked]
+    # Results written before the check existed still show their path.
+    assert delivered_files({"outputs": [path]}) == [{"path": path}]
+    assert delivered_files({}) == []
+    assert size_text(checked["bytes"]) == "3.1 GB"
+    german, english = catalogues()
+    assert "{version}" in german["result.format"] and "31" in german["result.output_hint"]
+    assert "{format}" in english["result.format"] and "31" in english["result.output_hint"]

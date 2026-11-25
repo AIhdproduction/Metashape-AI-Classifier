@@ -38,3 +38,4 @@ htmlcov/
 *.npy
 *.dat
 *.tmp
+.python-local/

@@ -5,7 +5,6 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-import laspy
 import numpy as np
 import torch
 from PIL import Image
@@ -18,10 +17,11 @@ from msam3.pointcloud.las_io import write_classified
 from msam3.pointcloud.postprocess import apply_postprocess
 from msam3.pointcloud.smoothing import smooth
 from msam3.pointcloud.spatial import (
+    estimate_up,
     metric_cloud,
+    metric_up,
     propagate,
-    representative_class_mask,
-    representative_classifications,
+    representative_attributes,
     spatial_blocks,
     voxel_representatives,
 )
@@ -38,39 +38,39 @@ def segmentation_identity(settings: Settings, classes: Classes) -> str:
     return backends.selected(settings).segmentation_identity(settings, classes)
 
 
-def representative_normals(source: Path, indices, transform, batch_size):
-    with laspy.open(source) as reader:
-        available = set(reader.header.point_format.dimension_names)
-        names = next(
-            (
-                names
-                for names in (
-                    ("normal_x", "normal_y", "normal_z"),
-                    ("NormalX", "NormalY", "NormalZ"),
-                    ("nx", "ny", "nz"),
-                )
-                if set(names).issubset(available)
-            ),
-            None,
+def vertical(points, cameras, cloud, transform, metadata):
+    """The true vertical from the cloud itself; the CRS is only a cross-check and a fallback."""
+    centres = np.array(
+        [
+            (camera.transform[:3, 3] - cloud.origin_internal) * cloud.metres_per_internal
+            for camera in cameras
+        ]
+    )
+    try:
+        crs_up = metric_up(transform, cloud.origin_internal, metadata.get("export_crs_wkt"))
+    except Exception as error:  # A CRS pyproj cannot read must not stop the run.
+        LOG.warning("No CRS vertical for comparison: %s", str(error))
+        crs_up = None
+    try:
+        up, info = estimate_up(points, centres)
+    except ValueError as error:
+        # Text only: a kept exception would hold this frame and its memory map open.
+        if crs_up is None:
+            LOG.warning("%s and no CRS vertical; using the frame's z axis", str(error))
+            return np.array([0.0, 0.0, 1.0]), {"source": "frame_z", "up": [0.0, 0.0, 1.0]}
+        LOG.warning("%s; using the vertical of the export CRS", str(error))
+        return crs_up, {"source": "crs", "up": [float(value) for value in crs_up]}
+    if crs_up is not None:
+        info["angle_to_crs_vertical_degrees"] = float(
+            np.degrees(np.arccos(np.clip(abs(float(up @ crs_up)), 0, 1)))
         )
-        if names is None:
-            raise ValueError(
-                "Incidence weighting requested but LAS has no normal vector "
-                "extra dimensions. Disable voting.use_incidence_weight."
-            )
-        normals = np.empty((len(indices), 3), dtype=np.float32)
-        offset = 0
-        for points in reader.chunk_iterator(batch_size):
-            left, right = np.searchsorted(indices, [offset, offset + len(points)])
-            ids = indices[left:right] - offset
-            normals[left:right] = np.column_stack([np.asarray(points[name])[ids] for name in names])
-            offset += len(points)
-    # Normals are covectors: world/export normals -> internal normals via A^T.
-    normals = normals @ transform[:3, :3]
-    lengths = np.linalg.norm(normals, axis=1)
-    if np.any(lengths <= 0) or not np.isfinite(normals).all():
-        raise ValueError("Incidence weighting requires finite, nonzero normals")
-    return normals / lengths[:, None]
+    LOG.info(
+        "Chunk %s: vertical from the point cloud (%s), %.1f degrees from the frame's z axis",
+        metadata["label"],
+        info["method"],
+        info["tilt_from_frame_z_degrees"],
+    )
+    return up, info
 
 
 def process_chunk(
@@ -114,12 +114,35 @@ def process_chunk(
         settings.voting.voxel_buckets,
     )
     points = np.asarray(cloud.points[indices])
-    ground_hint = representative_class_mask(
-        directory / "dense.las", indices, 2, settings.voting.batch_points
+    use_normals = settings.voting.use_incidence_weight or (
+        settings.postprocess.enabled and bool(settings.postprocess.geometry_rules)
     )
-    metashape_classes = representative_classifications(
-        directory / "dense.las", indices, settings.voting.batch_points
+    metashape_classes, colors, surface_normals = representative_attributes(
+        directory / "dense.las",
+        indices,
+        settings.voting.batch_points,
+        include_rgb=settings.postprocess.enabled and settings.postprocess.color_ground.enabled,
+        include_normals=use_normals,
     )
+    # Metashape's ground class (2) from the same LAS scan; no second pass over the cloud.
+    ground_hint = metashape_classes == 2
+    if surface_normals is not None:
+        # Source/export normals are covectors; transform into the metric point frame.
+        # float32 like the points: a float64 copy would cost 24 bytes per voting point.
+        surface_normals = (surface_normals @ transform[:3, :3].astype(np.float32)).astype(
+            np.float32, copy=False
+        )
+        lengths = np.linalg.norm(surface_normals, axis=1)
+        valid_normals = np.isfinite(lengths) & (lengths > 0)
+        if settings.voting.use_incidence_weight and not valid_normals.all():
+            raise ValueError("Incidence weighting requires finite, nonzero normals")
+        surface_normals[valid_normals] /= lengths[valid_normals, None]
+        surface_normals[~valid_normals] = 0
+    elif settings.voting.use_incidence_weight:
+        raise ValueError(
+            "Incidence weighting requested but LAS has no normal vector extra dimensions. "
+            "Disable voting.use_incidence_weight."
+        )
     LOG.info(
         "Chunk %s: %d original points -> %d voting points",
         metadata["label"],
@@ -128,13 +151,7 @@ def process_chunk(
     )
     blocks = spatial_blocks(points, settings.voting.block_size_m)
     votes = Votes(len(points), classes, settings.voting, directory)
-    normals = (
-        representative_normals(
-            directory / "dense.las", indices, transform, settings.voting.batch_points
-        )
-        if settings.voting.use_incidence_weight
-        else None
-    )
+    normals = surface_normals if settings.voting.use_incidence_weight else None
     # One folder per model: switching back reuses its images, and the identity still decides.
     cache = LabelCache(
         directory / "cache" / segmenter.key, segmentation_identity(settings, classes), model_hash
@@ -284,6 +301,8 @@ def process_chunk(
         settings.voting.batch_points,
         {code_of[name] for name in settings.smoothing.protected_classes if name in code_of},
     )
+    postprocess_start = time.perf_counter()
+    up, up_info = vertical(points, cameras, cloud, transform, metadata)
     result = apply_postprocess(
         points,
         result,
@@ -292,7 +311,13 @@ def process_chunk(
         settings.postprocess,
         directory,
         settings.voting.batch_points,
+        source_ground_hint=ground_hint,
+        colors=colors,
+        normals=surface_normals,
+        up=up,
+        up_info=up_info,
     )
+    postprocess_seconds = time.perf_counter() - postprocess_start
     output_start = time.perf_counter()
     all_codes = propagate(
         cloud.points, points, result, directory / "all_codes.dat", settings.voting.batch_points
@@ -310,6 +335,7 @@ def process_chunk(
         "preparation": preparation,
         "segmentation": segmentation_seconds,
         "voting": voting_seconds,
+        "postprocess": postprocess_seconds,
         "output": time.perf_counter() - output_start,
         "stage2": time.perf_counter() - started,
     }

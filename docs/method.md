@@ -198,6 +198,82 @@ labelled ground to building only when it is horizontally close to several buildi
 one metre below it, which protects flat roofs. A report is written below each chunk as
 `post_sam_filter/postprocess_report.json` before labels are propagated back to the full cloud.
 
+### Ground from a terrain model
+
+Photogrammetry sees the top of a meadow, not the soil, so a model labels most of it low
+vegetation. The last post-filter step (`postprocess.dtm_ground`, both models) builds a terrain
+model from all ground and low-vegetation points: per 1 m cell the point at the 5th height
+percentile along the vertical estimated from the cloud; cells far below (25 cm) or above (1 m)
+their neighbours are dropped; each remaining node gets a plane through its neighbours. Low
+vegetation at most 5 cm above that plane becomes ground. In the 291-photo project this raised
+ground from 6% to 54% of the voting points in 9 s; the remaining low vegetation stands higher than
+the meadow surface. SAM 3 labels these meadows low vegetation as well, so agreement with SAM 3 is
+no measure for this step.
+
+### Small flat classes
+
+`postprocess.compact_classes` checks classes of small, flat objects; by default
+`utility_cover` (manhole and drain covers) for both models. Points closer than 10 cm form one
+object, measured along the vertical from the cloud: length along its main horizontal axis (2nd
+to 98th percentile) between 0.2 and 1.5 m, height span (5th to 95th percentile) at most 15 cm.
+Other groups take the most common class of their neighbours within 0.5 m at the same height
+(±20 cm), or become unclassified. In the 291-photo project FlurSeg labelled 160 groups; 75
+fragments, 10 groups longer than 1.5 m (strips of up to 5 x 0.9 m along facades, which hold
+most cover points) and 12 raised groups were moved, 63 cover objects stayed.
+
+SAM 3 can only find what its class list names. Its default list had neither covers nor road
+markings, so SAM 3 runs never produced them. `config/classes.yml` now has both, with the LAS
+codes and colours of FlurSeg: `road_marking` (82; road marking, painted road line, zebra
+crossing, painted arrow on road) and `utility_cover` (75; manhole cover, utility cover, drain
+grate, sewer grate, gully cover, valve cover). Kerbs, markings and covers are protected for
+SAM 3 as for FlurSeg: no mask erosion, never overwritten by road repair, hole filling or
+geometry rules, two neighbours suffice for the cluster filter, and they support the DTM.
+The new classes change the SAM 3 segmentation identity: the next SAM 3 run segments all photos
+again, and the ten extra prompts add to its time per photo.
+
+### Per-class geometry review
+
+`postprocess.geometry_rules` runs last and holds one rule per target class. A rule names the
+classes it may take points from (`source_classes`, plus unclassified with `include_unknown`).
+A candidate moves to the target only when all of these hold:
+
+- at least 8 of its 16 nearest target points (thinned to one per 12 cm voxel) lie within the
+  search radius, and they span a plane (second eigenvalue at least 8 cm);
+- the candidate lies on that plane (12 cm; unclassified 8 cm) and its own Metashape normal
+  agrees with the plane normal (|cos| at least 0.8; unclassified 0.85);
+- unclassified points must also touch the surface (nearest target point within 20 cm) and be
+  surrounded by it: target points in at least 7 of 8 directions, measured inside the plane. A
+  hole in a facade is filled; the plane is never extended past its edge;
+- the candidate is more than 25 cm away from a protected thin class (kerb, marking, cover).
+  Protected classes are never sources, and a rule for a protected target is ignored.
+
+`surfaces: [horizontal, vertical]` fits roofs and facades separately (normal within 56.6
+degrees of vertical counts as horizontal). `source_surfaces` restricts a source class to points
+whose own normal faces one way. All rules read the labels from before the step; a point
+accepted by two targets goes to the closer plane. Without normals in the source LAS the step is
+skipped with a warning.
+
+The vertical comes from the point cloud itself, for every project, georeferenced or not.
+Metashape's internal axes and the project CRS are not trusted:
+
+1. PCA normals of planar neighbourhoods are computed from the coordinates of 200,000 sample
+   points (neighbours from a 2-million-point subsample, 0.5 m radius).
+2. The most common normal direction (terrain, roads, roofs) gives a first estimate.
+3. Walls are vertical also on a hillside. When the cloud has walls in at least two directions
+   (found within 40 degrees, then 15 degrees of the horizontal), the vertical is the direction
+   perpendicular to all of them.
+4. The camera centres lie above the scene and fix the sign.
+
+On the 291-photo project this took 2.3 s and lay 0.5–0.6 degrees from the vertical of the
+geocentric export; terrain alone would have leant 2.7 degrees with the slope. The report
+`post_sam_filter/postprocess_report.json` records the method, the tilt of the internal frame and
+the angle to the CRS vertical. Only a cloud without planar surfaces falls back to the CRS.
+
+`default.yml` (SAM 3) restores only unclassified building points. Metashape's internal frame is
+not levelled: 31.7 degrees in the 291-photo project. The older filters (DTM height, road slope,
+flat roofs) still work in that frame because their thresholds were calibrated there;
+`postprocess.level_to_vertical: true` rotates all of them to the true vertical.
+
 ### FlurSeg profile
 
 The class names and codes in `default.yml` are those of SAM 3. `config/profile.flurseg.yml`
@@ -207,6 +283,14 @@ replaces them while FlurSeg is selected:
 - ground assist chooses between `ground` and `paved_surface`; vegetation assist is unchanged;
 - trusted DTM codes are 2, 71, 82, 75 and 74;
 - planar filling uses ground, paved surface and building.
+- a colour check restores non-green `low_vegetation` to `ground` only where Metashape's
+  source classified the point as terrain; a 0.75 m 3D building-neighbour check restores
+  nearby `other` points to `building`, except within 25 cm of a kerb, marking or cover.
+  Both rules can be disabled in the profile;
+- the geometry review also takes `other` on facades and `construction` on roofs to `building`.
+  Flat `other` and facade `construction` (often scaffolding) stay, and `low_vegetation` is never
+  a source: against SAM 3 it was almost always wrong. Measurements are in
+  [the benchmark](benchmarks/flurseg-filter-291-images.md).
 
 `curb`, `road_marking` and `utility_cover` are thin or small and lie in the road plane. Four
 protections keep the road from absorbing them: their masks are not eroded before voting (two
@@ -355,6 +439,16 @@ writes the lookup VLR and full JSON/CSV legends. Input RGB, standard attributes 
 dimensions are preserved where representable; legacy scan angles are converted to format-7
 units. LAS 1.4 format-7 CRS metadata uses WKT. Legacy lookup names have a 15-byte limit;
 the full names are available in legends.
+
+Metashape writes the whole code into the format-2 byte that holds a five-bit class and the
+synthetic, key-point and withheld flags: 67 reads as class 3 with the key-point flag, codes from
+96 also set synthetic and from 128 withheld. The writer clears these three flags for parts with
+codes of 32 or more. After writing, it checks the header (LAS 1.4, point format 6 or higher,
+point count) and the first point of every class part. The app, the Metashape completion message
+and the CLI name this file by its full path. A LAS/LAZ export of your own from Metashape is again
+LAS 1.2 and truncates codes above 31, so FlurSeg `construction` (67) appears as
+`low_vegetation` (3). A final name ending in `.laz` is compressed with `lazrs` when installed
+and refused otherwise; `install.bat` installs `lazrs`.
 
 ## To be verified on first real run
 

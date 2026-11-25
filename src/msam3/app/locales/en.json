@@ -65,12 +65,12 @@
     "error": "error"
   },
   "model": {
-    "speed_note": "Segmentation, measured in the SAMcloud drone test (approx. 2 s instead of 30 s per photo). Export, point voting and import do not get faster; the factor varies with the resolution.",
+    "speed_note": "In the 291-photo test project: classification and voting were 6.1× faster; the complete workflow was 5.1× faster. The earlier 15× figure covered image segmentation alone in a different test.",
     "flurseg": {
-      "short": "approx. 15× faster",
+      "short": "approx. 6× faster in the test",
       "choice": "11 fixed classes, no prompts of your own.",
       "description": "Our own model (EoMT-DINOv3) for drone photos of construction sites, roads and settlements. Default.",
-      "speed": "approx. 15× faster",
+      "speed": "approx. 6× faster in the test",
       "classes": "11 fixed classes",
       "accuracy": "weaker than SAM 3 on thin classes",
       "licence": "DINOv3 License",
@@ -168,7 +168,9 @@
     "title": "Classified points",
     "total": "{model} · {count} points",
     "code": "LAS {code}",
-    "output": "Classified LAS file"
+    "output": "Final LAS file",
+    "format": "LAS {version} · point format {format} · {size} · all class codes checked",
+    "output_hint": "This file contains every class code unchanged. A LAS/LAZ export of your own from Metashape (LAS 1.2) truncates codes above 31, for example 67 “construction” to 3 “low vegetation”."
   },
   "failed": {
     "title": "Classification failed",

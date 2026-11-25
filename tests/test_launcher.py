@@ -217,6 +217,11 @@ def test_full_run_with_each_model_in_one_project(simulation):
         assert run.result["label"] == model.asset_label
         assert run.result["point_count"] == source.point_count
         assert run.result["outputs"] == [str(output)]
+        delivered = run.result["files"][0]
+        assert delivered["path"] == str(output)
+        assert (delivered["las_version"], delivered["point_format"]) == ("1.4", 7)
+        # The completion message names the exact delivered file.
+        assert str(output) in message and "LAS 1.4, Punktformat 7" in message
         progress = gui_progress.image_progress(session / "stage2.log")
         assert (progress.done, progress.total) == (3, 3)
         assert "(DJI (2) Süd)" in gui_progress.read_log(session)
@@ -225,6 +230,9 @@ def test_full_run_with_each_model_in_one_project(simulation):
         codes = set(np.unique(np.asarray(las.classification)))
         assert len(las) == source.point_count and str(las.header.version) == "1.4"
         assert (71 if backend == "flurseg" else 11) in codes
+        # Metashape's class parts carry codes >= 32 in the five-bit field; no bit may leak.
+        assert not np.any(las.key_point) and not np.any(las.withheld)
+        assert not np.any(las.synthetic)
         legend = json.loads((output.parent / "class_legend.json").read_text(encoding="utf-8"))
         assert legend[0]["model"] == model.title
         metadata = json.loads((session / "job.json").read_text(encoding="utf-8"))

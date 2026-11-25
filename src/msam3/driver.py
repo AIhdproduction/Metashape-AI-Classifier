@@ -16,7 +16,7 @@ from msam3.cache import atomic_json, file_hash, json_hash
 from msam3.config import Classes, Settings
 from msam3.metashape_runner import run_metashape
 from msam3.pipeline import process_chunk
-from msam3.pointcloud.las_io import merge_class_exports
+from msam3.pointcloud.las_io import describe_output, merge_class_exports
 from msam3.validation import validate_package
 
 LOG = logging.getLogger(__name__)
@@ -253,9 +253,13 @@ def _execute(
         report = next(item["report"] for item in inputs if item["directory"] == result["directory"])
         if int(counts.sum()) != report["point_count"]:
             raise RuntimeError("Final LAS point count differs from classified source")
+        delivered = describe_output(Path(result["output"]), result["parts"])
+        result["output"] = delivered["path"]
+        result["output_file"] = delivered
         report["timing_seconds"]["stage3"] = time.perf_counter() - start
         report["timing_seconds"]["driver_total"] = time.perf_counter() - started
         report["output_las"] = result["output"]
+        report["output_file"] = delivered
         report["metashape_asset_key"] = result["asset_key"]
         atomic_json(Path(result["directory"]) / "report.json", report)
         atomic_json(Path(result["output"]).with_suffix(".report.json"), report)
@@ -264,8 +268,24 @@ def _execute(
         {"chunks": stage3["chunks"], "timing_seconds": time.perf_counter() - started},
     )
     atomic_json(work / "run_done.json", stage3)
-    LOG.info("Complete. Classified project saved; final LAS files: %s", output)
+    for line in completion_lines(stage3):
+        LOG.info("%s", line)
     return stage3
+
+
+def completion_lines(stage3: dict) -> list[str]:
+    """The final message names every delivered file by its full path and verified format."""
+    lines = ["Complete. Classified project saved."]
+    for result in stage3.get("chunks", []):
+        info = result.get("output_file") or {"path": result["output"]}
+        details = (
+            f" (LAS {info['las_version']}, point format {info['point_format']}, "
+            "all class codes preserved)"
+            if "las_version" in info
+            else ""
+        )
+        lines.append(f"Final classified LAS{details}: {info['path']}")
+    return lines
 
 
 def prepare_stage3_inputs(

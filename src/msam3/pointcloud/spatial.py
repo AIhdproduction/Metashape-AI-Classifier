@@ -49,6 +49,134 @@ def metric_cloud(
     return MetricCloud(points, origin, scale)
 
 
+def _fibonacci_hemisphere(count: int) -> np.ndarray:
+    """Evenly spread unit vectors with z >= 0 (axes: +u and -u are the same direction)."""
+    index = np.arange(count) + 0.5
+    z = 1 - index / count
+    radius = np.sqrt(1 - z * z)
+    angle = np.pi * (1 + 5**0.5) * index
+    return np.column_stack((radius * np.cos(angle), radius * np.sin(angle), z))
+
+
+def _axial_mean(normals: np.ndarray, axis: np.ndarray, window_degrees: float) -> np.ndarray:
+    """Mean direction of the normals within the window around ``axis``, signs aligned."""
+    cosine = normals @ axis
+    inside = np.abs(cosine) >= np.cos(np.radians(window_degrees))
+    if not np.any(inside):
+        return axis
+    mean = (normals[inside] * np.sign(cosine[inside])[:, None]).sum(axis=0)
+    return mean / np.linalg.norm(mean)
+
+
+def _plane_normals(points, query_count, support_count, radius, rng):
+    """PCA normals of planar neighbourhoods, from the coordinates alone."""
+    support = points[rng.choice(len(points), min(support_count, len(points)), replace=False)]
+    queries = support[rng.choice(len(support), min(query_count, len(support)), replace=False)]
+    distances, indices = cKDTree(support).query(
+        queries, k=16, distance_upper_bound=radius, workers=-1
+    )
+    valid = np.isfinite(distances)
+    count = valid.sum(axis=1)
+    usable = count >= 8
+    neighbours = support[np.minimum(indices[usable], len(support) - 1)].astype(np.float64)
+    weights = valid[usable][:, :, None]
+    mean = (neighbours * weights).sum(axis=1) / count[usable, None]
+    centred = (neighbours - mean[:, None, :]) * weights
+    eigenvalues, vectors = np.linalg.eigh(np.einsum("bki,bkj->bij", centred, centred))
+    total = np.maximum(eigenvalues.sum(axis=1), 1e-12)
+    # Flat and extended: little spread across the plane, real spread inside it.
+    planar = (eigenvalues[:, 0] / total < 0.01) & (eigenvalues[:, 1] / total > 0.1)
+    return vectors[planar, :, 0]
+
+
+def estimate_up(points, camera_centres=None, seed: int = 0) -> tuple[np.ndarray, dict]:
+    """Estimate the true vertical from the point cloud itself, in the frame of ``points``.
+
+    Metashape's internal axes are arbitrary and a project's CRS may be local or missing, so the
+    cloud decides. First the most common surface normal (terrain, roads, roofs). Walls are then
+    the stronger evidence, because they are vertical also on a hillside: when the cloud has walls
+    in at least two directions, the vertical is the direction perpendicular to all of them.
+    Cameras look down on the scene and fix the sign.
+    """
+    rng = np.random.default_rng(seed)
+    points = np.asarray(points, dtype=np.float32)
+    info = {"source": "point_cloud"}
+    normals = _plane_normals(points, 200_000, 2_000_000, 0.5, rng)
+    info["planar_normals"] = int(len(normals))
+    if len(normals) < 100:
+        raise ValueError("Too few planar surfaces in the point cloud to find the vertical")
+    sample = normals[rng.choice(len(normals), min(50_000, len(normals)), replace=False)]
+    candidates = _fibonacci_hemisphere(2000)
+    threshold = np.cos(np.radians(10))
+    scores = np.zeros(len(candidates), dtype=np.int64)
+    for start in range(0, len(candidates), 250):
+        block = candidates[start : start + 250]
+        scores[start : start + 250] = (np.abs(sample @ block.T) >= threshold).sum(axis=0)
+    up = candidates[int(np.argmax(scores))]
+    for _ in range(5):
+        up = _axial_mean(normals, up, 10)
+    info["method"] = "surfaces"
+    surface_up = up
+    # The first wall search is wide, so that walls on a hillside of up to 40 degrees are found
+    # although the surface estimate leans with the hill; later passes narrow down to 15.
+    for band in (40, 15, 15, 15, 15):
+        walls = normals[np.abs(normals @ up) < np.sin(np.radians(band))]
+        if len(walls) < max(500, 0.03 * len(normals)):
+            break
+        values, vectors = np.linalg.eigh(walls.T @ walls / len(walls))
+        # Walls of one direction only leave the vertical free to turn about their normal.
+        if values[1] < 0.1 * values[2]:
+            break
+        candidate = vectors[:, 0] * np.sign(vectors[:, 0] @ up)
+        if np.degrees(np.arccos(np.clip(candidate @ surface_up, -1, 1))) > 40:
+            break
+        up = candidate
+        info["method"] = "walls"
+        info["wall_normals"] = int(len(walls))
+    centres = None if camera_centres is None else np.asarray(camera_centres, dtype=np.float64)
+    if centres is not None and len(centres):
+        height = (centres - points.mean(axis=0)) @ up
+        if np.median(height) < 0:
+            up = -up
+        info["sign"] = "cameras"
+    else:
+        if up[2] < 0:
+            up = -up
+        info["sign"] = "internal_z"
+    info["up"] = [float(value) for value in up]
+    info["tilt_from_frame_z_degrees"] = float(np.degrees(np.arccos(np.clip(abs(up[2]), 0, 1))))
+    info["surface_to_final_degrees"] = float(
+        np.degrees(np.arccos(np.clip(abs(surface_up @ up), 0, 1)))
+    )
+    return up, info
+
+
+def metric_up(
+    transform: np.ndarray, origin_internal: np.ndarray, crs_wkt: str | None
+) -> np.ndarray:
+    """Vertical of the export CRS in the metric frame; only a cross-check of :func:`estimate_up`.
+
+    Metashape's internal axes are arbitrary. Georeferenced chunks are exported in geocentric
+    coordinates, whose vertical is the ellipsoid normal at the cloud; a local or projected CRS
+    has its z axis up.
+    """
+    from pyproj import CRS
+
+    linear = np.asarray(transform, dtype=np.float64)[:3, :3]
+    up_world = np.array([0.0, 0.0, 1.0])
+    crs = CRS.from_wkt(crs_wkt) if crs_wkt else None
+    if crs is not None and crs.is_geocentric:
+        centre = linear @ np.asarray(origin_internal, dtype=np.float64) + transform[:3, 3]
+        # The ellipsoid normal is the gradient of x²/a² + y²/a² + z²/b²; a few hundred metres
+        # above the surface it differs from the exact foot-point normal by microradians.
+        a = crs.ellipsoid.semi_major_metre
+        b = crs.ellipsoid.semi_minor_metre
+        up_world = centre / np.array([a * a, a * a, b * b])
+    # Directions map with the inverse linear part; the metric scale does not turn them.
+    up = np.linalg.solve(linear, up_world)
+    return up / np.linalg.norm(up)
+
+
 def representative_class_mask(source: Path, indices, code: int, batch_size: int) -> np.ndarray:
     """Read a LAS classification only for sorted voxel representatives."""
     indices = np.asarray(indices)
@@ -66,21 +194,61 @@ def representative_class_mask(source: Path, indices, code: int, batch_size: int)
     return mask
 
 
-def representative_classifications(source: Path, indices, batch_size: int) -> np.ndarray:
-    """Read original Metashape classification values for sorted voting representatives."""
+def representative_attributes(
+    source: Path,
+    indices,
+    batch_size: int,
+    *,
+    include_rgb: bool = False,
+    include_normals: bool = False,
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Read source classifications, RGB and normals in one LAS scan."""
     indices = np.asarray(indices)
     if len(indices) and np.any(np.diff(indices) < 0):
         raise ValueError("Representative indices must be sorted")
     classifications = np.empty(len(indices), dtype=np.uint8)
     offset = 0
     with laspy.open(source) as reader:
+        available = set(reader.header.point_format.dimension_names)
+        has_rgb = include_rgb and {"red", "green", "blue"}.issubset(available)
+        normal_names = next(
+            (
+                names
+                for names in (
+                    ("normal x", "normal y", "normal z"),
+                    ("normal_x", "normal_y", "normal_z"),
+                    ("NormalX", "NormalY", "NormalZ"),
+                    ("nx", "ny", "nz"),
+                )
+                if set(names).issubset(available)
+            ),
+            None,
+        )
+        colors = np.empty((len(indices), 3), dtype=np.uint16) if has_rgb else None
+        normals = (
+            np.empty((len(indices), 3), dtype=np.float32)
+            if include_normals and normal_names is not None
+            else None
+        )
         for block in reader.chunk_iterator(batch_size):
             left, right = np.searchsorted(indices, [offset, offset + len(block)])
             if left != right:
                 local = indices[left:right] - offset
                 classifications[left:right] = np.asarray(block.classification)[local]
+                if colors is not None:
+                    colors[left:right, 0] = np.asarray(block.red)[local]
+                    colors[left:right, 1] = np.asarray(block.green)[local]
+                    colors[left:right, 2] = np.asarray(block.blue)[local]
+                if normals is not None:
+                    for axis, name in enumerate(normal_names):
+                        normals[left:right, axis] = np.asarray(block[name])[local]
             offset += len(block)
-    return classifications
+    return classifications, colors, normals
+
+
+def representative_classifications(source: Path, indices, batch_size: int) -> np.ndarray:
+    """Read original Metashape classification values for sorted voting representatives."""
+    return representative_attributes(source, indices, batch_size)[0]
 
 
 def voxel_representatives(

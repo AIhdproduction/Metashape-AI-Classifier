@@ -232,6 +232,11 @@ body { font-family:Roboto, sans-serif; font-size:14px; }
 .mac-code { width:100%; padding:8px; background:var(--canvas); border:1px solid var(--line);
   border-radius:6px; color:var(--text-2); font:11px/1.6 ui-monospace, Consolas, monospace;
   white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
+.mac-output { border-color:var(--success); gap:10px; }
+.mac-output > .mac-row > .q-icon { color:var(--success); font-size:22px; }
+.mac-output-path { width:100%; padding:10px 12px; background:var(--canvas);
+  border:1px solid var(--line-strong); border-radius:6px; color:var(--text);
+  font:600 14px/1.5 ui-monospace, Consolas, monospace; overflow-wrap:anywhere; user-select:all; }
 .mac-link { color:var(--accent); font-size:14px; text-decoration:none; display:inline-flex;
   align-items:center; gap:6px; }
 .mac-link .q-icon { font-size:18px; }

@@ -9,6 +9,7 @@ pydantic==2.12.5
 PyYAML==6.0.2
 Pillow==12.1.1
 laspy==2.5.4
+lazrs==0.6.3 # LAZ backend of laspy 2.5 (needs 0.6.x); final .laz output is compressed with it.
 pyproj==3.7.1
 torch==2.7.1
 torchvision==0.22.1

@@ -10,6 +10,7 @@ REQUIRED = {
     "transformers": ("transformers", "5.22.1"),
     "psutil": ("psutil", None),
     "torch": ("torch", None),
+    "lazrs": ("lazrs", None),  # Without it a .laz result cannot be written.
 }
 
 

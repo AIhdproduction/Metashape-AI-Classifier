@@ -61,15 +61,25 @@ def main(argv: list[str] | None = None) -> int:
             settings.metashape.chunks = args.chunk
         if args.work_dir is not None:
             settings.paths.work_dir = args.work_dir.resolve()
-        from msam3.driver import execute
+        from msam3.driver import completion_lines, execute
 
-        execute(
+        result = execute(
             args.command,
             args.project,
             settings,
             classes,
             voting_only=getattr(args, "voting_only", False),
         )
+        if args.command in ("run", "stage3"):
+            # Also on stdout, so the path stays visible when the log goes elsewhere.
+            for line in completion_lines(result):
+                print(line)
+        elif args.command == "stage2":
+            for chunk in result["chunks"]:
+                print(
+                    "Stage 2 complete. Intermediate LAS (import with stage3): "
+                    + str(Path(chunk["classified_las"]).absolute())
+                )
         return 0
     except KeyboardInterrupt:
         logging.error("Interrupted. Completed image caches will be reused on the next run.")

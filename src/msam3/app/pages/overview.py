@@ -226,6 +226,7 @@ def _result(screen) -> None:
     result = controller.run.result
     label = result.get("label") or controller.imported_label()
     components.banner("info", t("result.banner", label=label))
+    _delivered(screen, result)
     with ui.element("div").classes("mac-card"):
         with ui.element("div").classes("mac-row mac-spread mac-list-head"):
             ui.label(t("result.title")).classes("mac-card-title")
@@ -247,25 +248,51 @@ def _result(screen) -> None:
                     with ui.element("div").classes("mac-item-side"):
                         ui.label(t.number(item["count"]))
                         ui.label(share_text)
-        outputs = result.get("outputs", [])
-        with ui.element("div").classes("mac-stack mac-actions"):
-            if outputs:
-                components.note(t("result.output"))
-                for output in outputs:
-                    ui.label(output).classes("mac-code")
-            with ui.element("div").classes("mac-row"):
-                if outputs:
-                    components.button(
-                        t("action.open_folder"),
-                        "folder_open",
-                        lambda: _open_folder(screen, Path(outputs[0]).parent),
-                    )
-                    components.button(
-                        t("action.copy_path"),
-                        "content_copy",
-                        lambda: screen.copy("\n".join(outputs)),
-                    )
-                components.button(t("action.to_log"), "subject", lambda: screen.go("log"))
+        with ui.element("div").classes("mac-row mac-actions"):
+            components.button(t("action.to_log"), "subject", lambda: screen.go("log"))
+
+
+def delivered_files(result: dict) -> list[dict]:
+    """The verified final files; older results only listed their paths."""
+    return result.get("files") or [{"path": path} for path in result.get("outputs", [])]
+
+
+def _delivered(screen, result: dict) -> None:
+    """The final LAS comes first and in full: it is what the user hands on."""
+    t = screen.t
+    files = delivered_files(result)
+    if not files:
+        return
+    outputs = [item["path"] for item in files]
+    with ui.element("div").classes("mac-card mac-output"):
+        with ui.element("div").classes("mac-row"):
+            ui.icon("task")
+            ui.label(t("result.output")).classes("mac-card-title")
+        for item in files:
+            ui.label(item["path"]).classes("mac-output-path")
+            if "las_version" in item:
+                components.note(
+                    t(
+                        "result.format",
+                        version=item["las_version"],
+                        format=item["point_format"],
+                        size=size_text(item.get("bytes")),
+                    ),
+                    "mac-note mac-number",
+                )
+        components.note(t("result.output_hint"), "mac-text")
+        with ui.element("div").classes("mac-row"):
+            components.button(
+                t("action.open_folder"),
+                "folder_open",
+                lambda: _open_folder(screen, Path(outputs[0]).parent),
+                "secondary",
+            )
+            components.button(
+                t("action.copy_path"),
+                "content_copy",
+                lambda: screen.copy("\n".join(outputs)),
+            )
 
 
 def _open_folder(screen, folder: Path) -> None:
