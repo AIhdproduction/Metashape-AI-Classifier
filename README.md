@@ -80,8 +80,10 @@ If you forget, the script in Metashape tells you so and starts nothing.
   FlurSeg halves its window batch by itself when memory is short.
 - **Python 3.12, 64-bit**, and **Git for Windows**.
 - Microsoft Edge or Google Chrome for the app window. Otherwise the default browser is used.
-- Disk space for the exported cloud, the classified cloud, class exports and image caches. Large
-  jobs can need several times the size of their source LAS.
+- Disk space for the exported cloud, the classified cloud, class exports and image caches while
+  a run is going. Large jobs can need several times the size of their source LAS (462 photos:
+  about 15 GB). After a successful run this work data is deleted; see
+  [Work data](#work-data).
 
 `install.bat` creates `.venv`, installs CUDA PyTorch 2.7.1, the app, Transformers for FlurSeg and
 the official SAM 3 code at a pinned commit, and verifies both code stacks and CUDA. It needs no
@@ -463,10 +465,22 @@ replaces the file, also one of the other model. The CLI writes to
 
 - `class_legend.csv` (columns `name;code;color;prompts`) and `class_legend.json`, which also
   names the model of each row.
-- In `work/<project>-<path-hash>/chunk-<key>/`: `report.json` with the model, weights checksum,
-  coverage, counts, timings and validation, and `post_sam_filter/postprocess_report.json`.
-- Logs: `ui.log`, `prepare.log`, `stage2.log` and `finalize.log` in the session; `msam3.log` and
-  the Metashape stage logs for the CLI.
+- The CLI also writes `report.json` with the model, weights checksum, coverage, counts, timings
+  and validation next to the LAS.
+- Logs: `ui.log`, `prepare.log`, `stage2.log` and `finalize.log` in the session; `msam3.log` in
+  `work/<project>-<path-hash>/` for the CLI.
+
+### Work data
+
+During a run, `work/<project>-<path-hash>/` holds the exported cloud, depth maps, image caches
+and class parts. As soon as the final LAS is written and checked, this folder is emptied; only the
+small lock file and, for the CLI, `msam3.log` stay. This happens silently; `finalize.log` records
+the freed space. The classified cloud in the Metashape project and the delivered LAS are not affected.
+
+- A run that stops (error, cancel, PC restart) keeps its work data. Starting again then takes
+  the finished photos from the cache.
+- To keep the data after success, for example to rerun only the filters with `--voting-only`,
+  set `paths.keep_work_data: true` in `config/default.yml`. A rerun then also skips the export.
 
 LAS 1.4 lookup names have at most 15 characters; the full names are in the legends.
 

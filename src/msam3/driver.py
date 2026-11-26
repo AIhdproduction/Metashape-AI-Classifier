@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -81,6 +82,50 @@ def job_lock(path: Path):
         stream.close()
 
 
+# The held lock and the open run log cannot be deleted on Windows; both are tiny.
+KEEP_AFTER_CLEANUP = frozenset({"msam3.lock", "msam3.log"})
+
+
+def _tree_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+
+
+def clean_work_directory(work: Path, delivered: list[Path]) -> dict:
+    """Delete a project's intermediate data once its final LAS is delivered and verified.
+
+    Only a folder this program created (it holds job.json) is touched, and never when a
+    delivered file lies inside it. A file another program still holds stays; the run has
+    succeeded either way, so this never raises.
+    """
+    work = work.resolve()
+    if not (work / "job.json").is_file():
+        LOG.warning("Work data kept: %s is not a msam3 work folder", work)
+        return {"deleted": False, "freed_bytes": 0, "work_dir": str(work)}
+    for path in delivered:
+        if path.resolve().is_relative_to(work):
+            LOG.warning("Work data kept: the delivered file %s lies inside %s", path, work)
+            return {"deleted": False, "freed_bytes": 0, "work_dir": str(work)}
+    freed = 0
+    kept = []
+    for item in sorted(work.iterdir()):
+        if item.name in KEEP_AFTER_CLEANUP:
+            continue
+        try:
+            size = _tree_size(item)
+            if item.is_dir() and not item.is_symlink():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+            freed += size
+        except OSError as error:
+            kept.append(str(item))
+            LOG.warning("Work data could not be deleted completely: %s (%s)", item, error)
+    LOG.info("Deleted work data: %.2f GB freed in %s", freed / 1024**3, work)
+    return {"deleted": not kept, "freed_bytes": freed, "work_dir": str(work), "kept": kept}
+
+
 def job_directory(project: Path, settings: Settings) -> Path:
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", project.stem)
     suffix = json_hash(str(project.resolve()).casefold())[:12]
@@ -110,7 +155,13 @@ def execute(
     logging.getLogger().addHandler(handler)
     try:
         with job_lock(work / "msam3.lock"):
-            return _execute(action, project, work, output, settings, classes, voting_only)
+            result = _execute(action, project, work, output, settings, classes, voting_only)
+            if action in ("run", "stage3") and not settings.paths.keep_work_data:
+                # Still under the lock, so no second process can be using the data.
+                result["work_cleanup"] = clean_work_directory(
+                    work, [Path(chunk["output"]) for chunk in result["chunks"]]
+                )
+            return result
     finally:
         logging.getLogger().removeHandler(handler)
         handler.close()

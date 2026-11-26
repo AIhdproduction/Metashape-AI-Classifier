@@ -1,8 +1,10 @@
 import json
 import types
 from contextlib import nullcontext
+from pathlib import Path
 from typing import get_args
 
+import numpy as np
 import pytest
 import torch
 import yaml
@@ -27,9 +29,7 @@ def test_flurseg_is_the_default_and_the_registry_matches_the_schema():
 
 
 def test_config_from_before_the_model_choice_still_loads(tmp_path):
-    old = yaml.safe_load(
-        (REPO_ROOT / "config/default.yml").read_text(encoding="utf-8")
-    )
+    old = yaml.safe_load((REPO_ROOT / "config/default.yml").read_text(encoding="utf-8"))
     del old["segmentation"], old["flurseg"], old["paths"]["flurseg_model"]
     old["metashape"]["imported_label"] = "SAM3 classified"
     path = tmp_path / "old.yml"
@@ -284,9 +284,115 @@ def test_cli_fails_without_cuda_before_metashape(gpu_job, monkeypatch, backend, 
 )
 def test_commands_without_inference_need_no_cuda(gpu_job, monkeypatch, action, voting_only):
     settings, project = gpu_job
+    settings.paths.keep_work_data = True  # The stub returns no delivered files to protect.
     monkeypatch.setattr(driver, "_execute", lambda *a, **k: {"action": a[0]})
     classes = FLURSEG.classes()
     assert execute(action, project, settings, classes, voting_only) == {"action": action}
+
+
+def _work_data(work):
+    chunk = work / "chunk-0"
+    (chunk / "cache" / "sam3").mkdir(parents=True)
+    (chunk / "cache" / "sam3" / "image.labels.png").write_bytes(b"x" * 1000)
+    (chunk / "dense.las").write_bytes(b"x" * 5000)
+    (work / "job.json").write_text("{}", encoding="utf-8")
+    return chunk
+
+
+@pytest.mark.parametrize("keep", [False, True])
+def test_cli_run_deletes_work_data_after_a_delivered_las(gpu_job, monkeypatch, keep):
+    settings, project = gpu_job
+    settings.paths.keep_work_data = keep
+    work = driver.job_directory(project.resolve(), settings)
+    delivered = settings.paths.output_dir / "site.las"
+
+    def run(action, project, work, *args, **kwargs):
+        _work_data(work)
+        delivered.parent.mkdir(parents=True)
+        delivered.write_bytes(b"las")
+        return {"chunks": [{"output": str(delivered)}]}
+
+    monkeypatch.setattr(driver, "_execute", run)
+    result = execute("stage3", project, settings, FLURSEG.classes())
+    assert delivered.read_bytes() == b"las"
+    if keep:
+        assert "work_cleanup" not in result
+        assert (work / "chunk-0" / "dense.las").is_file()
+    else:
+        assert result["work_cleanup"]["deleted"]
+        assert result["work_cleanup"]["freed_bytes"] >= 6000
+        # Only the lock and the run log remain.
+        assert sorted(p.name for p in work.iterdir()) == ["msam3.lock", "msam3.log"]
+
+
+def test_cleanup_never_touches_a_foreign_folder_or_a_delivered_file(tmp_path):
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("mine", encoding="utf-8")
+    assert not driver.clean_work_directory(foreign, [])["deleted"]
+    assert (foreign / "keep.txt").is_file()
+    work = tmp_path / "work"
+    chunk = _work_data(work)
+    inside = work / "final.las"
+    inside.write_bytes(b"las")
+    assert not driver.clean_work_directory(work, [inside])["deleted"]
+    assert inside.is_file() and (chunk / "dense.las").is_file()
+
+
+def test_cleanup_does_not_fail_on_a_file_that_cannot_be_deleted(tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    chunk = _work_data(work)
+    remove = driver.shutil.rmtree
+
+    def busy(path, *args, **kwargs):
+        if Path(path).name == chunk.name:
+            raise PermissionError("in use")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(driver.shutil, "rmtree", busy)
+    result = driver.clean_work_directory(work, [])
+    assert not result["deleted"] and result["kept"] == [str(chunk.resolve())]
+    assert not (work / "job.json").exists()
+
+
+@pytest.mark.parametrize("keep", [False, True])
+def test_gui_finalize_deletes_work_data_and_keeps_the_las(tmp_path, monkeypatch, keep):
+    work = tmp_path / "work" / "site-abc"
+    chunk = _work_data(work)
+    output = tmp_path / "export" / "punktwolke_class.las"
+    output.parent.mkdir()
+    output.write_bytes(b"las")
+    stage3 = {"chunks": [{"directory": str(chunk), "parts": [], "output": str(output)}]}
+    stage3["chunks"][0]["crs_wkt"] = ""
+    (work / "stage3_done.json").write_text(json.dumps(stage3), encoding="utf-8")
+    session = tmp_path / "session"
+    session.mkdir()
+    job = {
+        "work_dir": str(work),
+        "classes": FLURSEG.classes().model_dump(),
+        "model": {"title": "FlurSeg"},
+        "stage3_inputs": [{"directory": str(chunk), "counts": {"2": 3}}],
+        "settings": {
+            "voting": {"batch_points": 10},
+            "metashape": {"imported_label": "FlurSeg classified"},
+            "paths": {"keep_work_data": keep},
+        },
+    }
+    (session / "job.json").write_text(json.dumps(job), encoding="utf-8")
+    monkeypatch.setattr(gui_worker, "merge_class_exports", lambda *a: np.array([0, 0, 3]))
+    monkeypatch.setattr(
+        gui_worker,
+        "describe_output",
+        lambda path, parts: {"path": str(path), "las_version": "1.4", "point_format": 7},
+    )
+    gui_worker.finalize(session)
+    done = json.loads((session / "finalize_done.json").read_text(encoding="utf-8"))
+    assert done["outputs"] == [str(output)] and output.read_bytes() == b"las"
+    if keep:
+        assert done["work_cleanup"] is None and (chunk / "dense.las").is_file()
+    else:
+        assert done["work_cleanup"]["deleted"]
+        assert [p.name for p in work.iterdir()] == ["msam3.lock"]
 
 
 @pytest.mark.parametrize("backend", ["flurseg", "sam3"])

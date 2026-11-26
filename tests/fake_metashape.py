@@ -117,9 +117,12 @@ class Chunk:
         ties = [types.SimpleNamespace(valid=True, coord=Vector(p.tolist())) for p in points[::53]]
         self.tie_points = types.SimpleNamespace(points=ties)
         self.imports = []
+        self.full_exports = []  # Keys of the clouds exported whole, i.e. as stage 1 input.
 
     def exportPointCloud(self, path, point_clouds, classes=None, **options):
         cloud = next(item for item in self.point_clouds if item.key == point_clouds[0])
+        if classes is None:
+            self.full_exports.append(cloud.key)
         keep = np.ones(len(cloud.codes), bool) if classes is None else np.isin(cloud.codes, classes)
         # Like Metashape 2.3.1: LAS 1.2 point format 2, with the whole code in the byte that
         # holds a five-bit class and the synthetic/key-point/withheld flags. 67 reads as 3.

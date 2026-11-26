@@ -13,6 +13,7 @@ paths:
   work_dir: "work" # Intermediate data, grouped by project path hash.
   output_dir: "output" # Final LAS and legends, grouped by project.
   image_path_remap: {} # Prefix mapping, e.g. {"D:/old/": "E:/new/"}.
+  keep_work_data: false # false deletes the work data after a successful run; only the classified LAS remains.
 gpu:
   device: "cuda:0" # CUDA device for production runs.
   dtype: "bfloat16" # SAM 3: bfloat16 or float16 autocast. FlurSeg uses flurseg.precision.

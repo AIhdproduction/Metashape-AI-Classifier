@@ -12,7 +12,14 @@ from pathlib import Path
 from msam3 import backends
 from msam3.cache import atomic_json
 from msam3.config import Classes, Settings, load_settings, merge_settings
-from msam3.driver import _execute, export_identity, job_directory, job_lock, prepare_stage3_inputs
+from msam3.driver import (
+    _execute,
+    clean_work_directory,
+    export_identity,
+    job_directory,
+    job_lock,
+    prepare_stage3_inputs,
+)
 from msam3.pointcloud.las_io import describe_output, legend, merge_class_exports
 
 LOG = logging.getLogger(__name__)
@@ -115,9 +122,20 @@ def finalize(session: Path) -> None:
             files[-1]["point_format"],
             files[-1]["path"],
         )
+    cleanup = None
+    if not job["settings"]["paths"].get("keep_work_data", False):
+        # Metashape has saved the project and the final LAS is verified, so nothing needs
+        # the export, depth maps or image caches any more.
+        work = Path(job["work_dir"])
+        try:
+            with job_lock(work / "msam3.lock"):
+                cleanup = clean_work_directory(work, [Path(item["path"]) for item in files])
+        except RuntimeError as error:
+            LOG.warning("Work data kept: %s", error)
     atomic_json(
         session / "finalize_done.json",
         {
+            "work_cleanup": cleanup,
             "outputs": [item["path"] for item in files],
             "files": files,
             "model": job.get("model", {}),

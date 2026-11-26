@@ -235,11 +235,14 @@ def test_full_run_with_each_model_in_one_project(simulation):
         assert not np.any(las.synthetic)
         legend = json.loads((output.parent / "class_legend.json").read_text(encoding="utf-8"))
         assert legend[0]["model"] == model.title
-        metadata = json.loads((session / "job.json").read_text(encoding="utf-8"))
-        directory = Path(metadata["stage3_inputs"][0]["directory"])
-        exported = json.loads((directory / "chunk.json").read_text(encoding="utf-8"))
         # A classified cloud of either model never becomes the next input.
-        assert exported["point_cloud_key"] == source.key
+        assert chunk.full_exports[-1] == source.key
+        # Only the classified LAS is kept; the work data of the run is gone.
+        metadata = json.loads((session / "job.json").read_text(encoding="utf-8"))
+        assert sorted(p.name for p in Path(metadata["work_dir"]).iterdir()) == ["msam3.lock"]
+        assert run.result["work_cleanup"]["deleted"]
+        # The user is not told; the deletion does not concern them.
+        assert "Zwischendaten" not in message
     assert simulation.modules.count("msam3.gui_options") == 3
 
 

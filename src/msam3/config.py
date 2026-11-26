@@ -97,6 +97,9 @@ class PathsConfig(StrictModel):
     work_dir: Path = Path("work")
     output_dir: Path = Path("output")
     image_path_remap: dict[str, str] = Field(default_factory=dict)
+    # False deletes the project's work folder after a verified final LAS. True keeps the
+    # export, depth maps and image caches, so a rerun skips the export and the GPU.
+    keep_work_data: bool = False
 
 
 class GPUConfig(StrictModel):
