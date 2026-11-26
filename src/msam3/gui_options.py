@@ -25,11 +25,13 @@ SAM_PROFILES = {
     "balanced": {"image_scale": 0.75, "tile_overlap": 0.20, "min_views": 1},
     "accurate": {"image_scale": 1.00, "tile_overlap": 0.30, "min_views": 2},
 }
-# Planning values while this project has no own history (both measured on an RTX 4090):
-# FlurSeg in fp32, SAM 3 per 1008 px tile at prompt batch 8.
-FLURSEG_SECONDS_PER_WINDOW = 0.09
-SAM_SECONDS_PER_TILE = 1.4
-SAM_SECONDS_PER_IMAGE = 45.0
+# Planning values for a PC without any earlier run, measured on an RTX 4090 in the 462-photo
+# project (20 MP, profile balanced, 2026-11-25): FlurSeg fp16 took 4.67 s per photo for
+# 70 windows; SAM 3 took 29.2 s per photo for 20 tiles of 1008 px at prompt batch 8, with
+# the 18 standard classes (78 prompts). Both include the point voting of each photo.
+FLURSEG_SECONDS_PER_WINDOW = 0.067
+SAM_SECONDS_PER_TILE = 1.46
+SAM_SECONDS_PER_IMAGE = 29.2
 
 
 def tile_count(width: int, height: int, image_scale: float, tile_overlap: float) -> int:
@@ -139,6 +141,23 @@ def historical_seconds_per_window(sessions_root: Path, project: str = "") -> flo
         resolution = settings.get("flurseg", {}).get("resolution", "balanced")
         samples.append(seconds * len(sizes) / total_window_count(sizes, resolution))
     return statistics.median(samples) if samples else None
+
+
+def measured_rate(backend: str, sessions_root: Path, project: str, image_sizes=()) -> float | None:
+    """Seconds per FlurSeg window or per standard SAM 3 image measured on this PC.
+
+    This project's own runs come first. A new project uses the runs of other projects: the
+    rate is normalised per window or tile, and the GPU is the same. Only without any run do
+    the planning values apply.
+    """
+    for scope in (project, ""):
+        if backend == "flurseg":
+            rate = historical_seconds_per_window(sessions_root, scope)
+        else:
+            rate = historical_seconds_per_image(sessions_root, image_sizes, scope, None)
+        if rate is not None or not scope:
+            return rate
+    return None
 
 
 def workflow_overhead(image_count: int) -> float:
@@ -368,10 +387,7 @@ class RunOptions:
     def estimate(
         self, sessions_root: Path, image_count: int, image_sizes=(), project: str = ""
     ) -> Estimate:
-        if self.backend == "flurseg":
-            rate = historical_seconds_per_window(sessions_root, project)
-        else:
-            rate = historical_seconds_per_image(sessions_root, image_sizes, project, None)
+        rate = measured_rate(self.backend, sessions_root, project, image_sizes)
         return self.estimate_from(rate, image_count, image_sizes)
 
     def estimate_from(self, rate: float | None, image_count: int, image_sizes=()) -> Estimate:

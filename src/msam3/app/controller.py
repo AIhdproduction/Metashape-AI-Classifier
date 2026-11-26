@@ -111,10 +111,8 @@ class Controller:
         if session and not viewing:
             root, project = self.sessions_root, self.project
             self.history = {
-                "flurseg": gui_options.historical_seconds_per_window(root, project),
-                "sam3": gui_options.historical_seconds_per_image(
-                    root, self.image_sizes, project, None
-                ),
+                backend: gui_options.measured_rate(backend, root, project, self.image_sizes)
+                for backend in ("flurseg", "sam3")
             }
         self.job = {}
         self.run = RunView("ready")

@@ -266,7 +266,8 @@ def test_estimate_counts_windows_and_never_divides_by_fifteen(tmp_path):
     result = options.estimate(tmp_path, len(SIZES), SIZES)
     windows = len(SIZES) * window_count(5280, 3956, "balanced")
     assert (result.units, result.from_history) == (windows, False)
-    expected = windows * 0.09 + gui_options.workflow_overhead(len(SIZES))
+    expected = windows * gui_options.FLURSEG_SECONDS_PER_WINDOW
+    expected += gui_options.workflow_overhead(len(SIZES))
     assert result.seconds == pytest.approx(expected)
     options.apply_profile("accurate")
     assert options.estimate(tmp_path, len(SIZES), SIZES).seconds > result.seconds
@@ -765,3 +766,18 @@ def test_result_page_lists_the_checked_final_file_first():
     german, english = catalogues()
     assert "{version}" in german["result.format"] and "31" in german["result.output_hint"]
     assert "{format}" in english["result.format"] and "31" in english["result.output_hint"]
+
+
+def test_a_new_project_learns_from_the_other_projects_on_this_pc(tmp_path):
+    windows = window_count(5280, 3956, "balanced")
+    history_run(tmp_path, "elsewhere", "flurseg", 4, project="D:/Other.psx")
+    history_run(tmp_path, "sam-elsewhere", "sam3", 30, project="D:/Other.psx")
+    new = gui_options.measured_rate("flurseg", tmp_path, "D:/New.psx", SIZES)
+    assert new == pytest.approx(4 / windows)
+    sam = gui_options.measured_rate("sam3", tmp_path, "D:/New.psx", SIZES)
+    assert sam == pytest.approx(30 * gui_options.batch_time_factor(8))
+    # The project's own runs come first.
+    history_run(tmp_path, "own", "flurseg", 6, project="D:/New.psx")
+    own = gui_options.measured_rate("flurseg", tmp_path, "D:/New.psx", SIZES)
+    assert own == pytest.approx(6 / windows)
+    assert gui_options.measured_rate("flurseg", tmp_path / "empty", "D:/New.psx") is None
