@@ -155,6 +155,7 @@ def test_gui_restores_photo_cloud_before_a_second_run(monkeypatch):
     class Asset:
         def __init__(self, key, label, meta):
             self.key, self.label, self.meta = key, label, meta
+            self.point_count = 100
 
     photo = Asset(7, "Original photo cloud", {})
     prior_result = Asset(

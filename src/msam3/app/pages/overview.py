@@ -8,7 +8,7 @@ from pathlib import Path
 from nicegui import ui
 
 from msam3 import backends
-from msam3.app import components
+from msam3.app import components, theme
 from msam3.gui_options import FLURSEG_SECONDS_PER_WINDOW, format_duration
 from msam3.gui_progress import duration
 
@@ -120,7 +120,6 @@ def _ready(screen) -> None:
         components.note(t("overview.photos", count=t.number(controller.image_count)))
         model_switch(screen, None)
         components.note(t(f"model.{backend}.choice"), "mac-text")
-        components.note(t("model.speed_note"))
         summary_label = components.note(summary(screen), "mac-text")
         estimate = ui.label().classes("mac-estimate")
         source = components.note("")
@@ -176,7 +175,9 @@ def _running(screen) -> None:
     run = controller.run
     components.banner("info", t("running.banner"))
     with ui.element("div").classes("mac-zone"):
-        ui.icon("blur_on")
+        ui.html(theme.LOGO_FILE.read_text(encoding="utf-8"), sanitize=False).classes(
+            "mac-work-logo"
+        ).props("aria-hidden=true")
         ui.label(t(f"running.{run.phase}")).classes("mac-zone-title")
         detail = components.note("", "mac-text mac-number")
         remaining = components.note("", "mac-note mac-number")

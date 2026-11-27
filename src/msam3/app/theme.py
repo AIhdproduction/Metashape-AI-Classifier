@@ -126,6 +126,32 @@ body { font-family:Roboto, sans-serif; font-size:14px; }
   border:1px dashed var(--line-strong); border-radius:9px;
   background:radial-gradient(circle at 50% 25%, var(--glow), transparent 45%), var(--dropzone); }
 .mac-zone > .q-icon { color:var(--zone-icon); font-size:64px; }
+.mac-work-logo { width:64px; height:64px; }
+.mac-work-logo svg { display:block; width:100%; height:100%; }
+
+/* Move two vertices by one SVG unit and keep all paths attached to them. */
+@media (prefers-reduced-motion:no-preference) {
+  .mac-work-logo path:nth-of-type(1) { animation:mac-work-outline 3s ease-in-out infinite; }
+  .mac-work-logo path:nth-of-type(2) { animation:mac-work-links 3s ease-in-out infinite; }
+  .mac-work-logo path:nth-of-type(3) { animation:mac-work-face 3s ease-in-out infinite; }
+  .mac-work-logo circle:nth-of-type(4) { animation:mac-work-center 3s ease-in-out infinite; }
+  .mac-work-logo circle:nth-of-type(5) { animation:mac-work-outer 3s ease-in-out infinite; }
+}
+@keyframes mac-work-outline {
+  0%,100% { d:path("M3 25 L12 6 L20 18 L31 11 L27 28 Z"); }
+  50% { d:path("M3 25 L12 6 L21 17 L30 10 L27 28 Z"); }
+}
+@keyframes mac-work-links {
+  0%,100% { d:path("M12 6 L8.5 27 L20 18 L27 28"); }
+  50% { d:path("M12 6 L8.5 27 L21 17 L27 28"); }
+}
+@keyframes mac-work-face {
+  0%,100% { d:path("M20 18 L31 11 L27 28 Z"); fill-opacity:.22; }
+  50% { d:path("M21 17 L30 10 L27 28 Z"); fill-opacity:.36; }
+}
+@keyframes mac-work-center { 50% { transform:translate(1px,-1px); } }
+@keyframes mac-work-outer { 50% { transform:translate(-1px,-1px); } }
+
 .mac-zone-title { color:var(--text); font-size:21px; font-weight:500; overflow-wrap:anywhere; }
 .mac-zone .mac-note, .mac-zone .mac-text { max-width:560px; }
 .mac-zone .mac-row { justify-content:center; }

@@ -65,12 +65,11 @@
     "error": "Fehler"
   },
   "model": {
-    "speed_note": "Im Testprojekt mit 291 Fotos: Klassierung und Voting 6,1× schneller, gesamter Ablauf 5,1× schneller. Die früheren 15× bezogen sich nur auf die Bildsegmentierung in einem anderen Test.",
     "flurseg": {
-      "short": "im Test ca. 6× schneller",
+      "short": "Schneller",
       "choice": "11 feste Klassen, keine eigenen Suchbegriffe.",
       "description": "Eigenes Modell (EoMT-DINOv3) für Drohnenfotos von Baustellen, Strassen und Siedlungen. Standard.",
-      "speed": "im Test ca. 6× schneller",
+      "speed": "Schneller",
       "classes": "11 feste Klassen",
       "accuracy": "bei dünnen Klassen schwächer als SAM 3",
       "licence": "DINOv3 License",

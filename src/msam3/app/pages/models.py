@@ -26,7 +26,6 @@ def render(screen) -> None:
     with ui.element("div").classes("mac-two"):
         for key, model in backends.MODELS.items():
             _card(screen, key, model)
-    components.note(t("model.speed_note"))
 
 
 def _card(screen, key: str, model: backends.Model) -> None:

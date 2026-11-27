@@ -66,10 +66,18 @@ def is_msam3_import(point_cloud):
 
 
 def source_point_cloud(chunk):
-    """Return the original cloud even when Metashape has no active cloud selected."""
+    """Return a non-empty original cloud, even if it is not currently selected."""
+
+    def usable(point_cloud):
+        return (
+            point_cloud is not None
+            and not is_msam3_import(point_cloud)
+            and point_cloud.point_count > 0
+        )
+
     active = getattr(chunk, "point_cloud", None)
     point_clouds = list(getattr(chunk, "point_clouds", []))
-    if active is not None and not is_msam3_import(active):
+    if usable(active):
         return active
     if active is not None:
         source_key = (
@@ -85,13 +93,13 @@ def source_point_cloud(chunk):
             ),
             None,
         )
-        if matched is not None and not is_msam3_import(matched):
+        if usable(matched):
             return matched
-    candidates = [point_cloud for point_cloud in point_clouds if not is_msam3_import(point_cloud)]
+    candidates = [point_cloud for point_cloud in point_clouds if usable(point_cloud)]
     if not candidates:
         return None
     # Prefer the complete source if a project retains multiple unclassified cloud assets.
-    return max(candidates, key=lambda point_cloud: getattr(point_cloud, "point_count", 0))
+    return max(candidates, key=lambda point_cloud: point_cloud.point_count)
 
 
 def classify_ground_support(chunk, job, progress=None):
@@ -224,7 +232,8 @@ def export_chunk(chunk, job, progress=None):
         raise RuntimeError(
             "Chunk "
             + chunk.label
-            + " has no usable source point cloud. Build or enable the dense point cloud first."
+            + " has no usable source point cloud. Run Workflow > Build Point Cloud in Metashape, "
+            "save the project, then start the Classifier again."
         )
     if chunk.point_cloud is not point_cloud:
         chunk.point_cloud = point_cloud

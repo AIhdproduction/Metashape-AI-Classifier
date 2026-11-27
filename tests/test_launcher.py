@@ -323,6 +323,30 @@ def test_every_classified_asset_is_excluded_as_input(simulation):
     renamed.meta["msam3.import_id"] = "earlier"
     chunk = type("Chunk", (), {"point_cloud": renamed, "point_clouds": [renamed, photo]})
     assert stage1.source_point_cloud(chunk) is photo
+    empty = cloud(4, "Empty Point Cloud", xyz[:0], codes[:0])
+    chunk.point_cloud = empty
+    chunk.point_clouds.append(empty)
+    assert stage1.source_point_cloud(chunk) is photo
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "classified_only"])
+def test_missing_source_cloud_shows_build_instructions_before_start(simulation, kind):
+    chunk = simulation.document.chunks[0]
+    if kind == "missing":
+        chunk.point_clouds = []
+        chunk.point_cloud = None
+    elif kind == "empty":
+        chunk.point_cloud.codes = chunk.point_cloud.codes[:0]
+    else:
+        chunk.point_cloud.meta["msam3.import_id"] = "earlier"
+
+    message = simulation.start()
+
+    assert "keine fertig berechnete Quellpunktwolke" in message
+    assert "Workflow > Build Point Cloud" in message
+    assert "das Projekt speichern" in message
+    assert not simulation.modules
+    assert not simulation.sessions
 
 
 def test_hanging_install_check_is_ended(simulation):

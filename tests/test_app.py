@@ -668,15 +668,11 @@ def test_every_used_text_key_exists():
     assert sorted(used - set(catalogues()[0])) == []
 
 
-def test_speed_wording_is_honest():
+def test_flurseg_speed_labels_are_short():
     german, english = catalogues()
-    assert german["model.flurseg.short"] == "im Test ca. 6× schneller"
-    assert english["model.flurseg.short"] == "approx. 6× faster in the test"
-    assert german["model.speed_note"] == (
-        "Im Testprojekt mit 291 Fotos: Klassierung und Voting 6,1× schneller, gesamter Ablauf "
-        "5,1× schneller. Die früheren 15× bezogen sich nur auf die Bildsegmentierung in einem "
-        "anderen Test."
-    )
+    for key in ("model.flurseg.short", "model.flurseg.speed"):
+        assert german[key] == "Schneller"
+        assert english[key] == "Faster"
 
 
 def test_language_is_saved():

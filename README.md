@@ -43,7 +43,9 @@ Contents: [Quick start](#quick-start) ·
    .venv\Scripts\hf.exe download AIhdproduction/Flurseg --revision 5df53dbbf721778f1ecd4903369e9465926ae2fd --include "v1/*" --local-dir models/flurseg
    ```
 
-3. In Metashape Professional open the saved project, choose **Tools → Run Script** and select
+3. In Metashape Professional, finish processing your project through **Workflow → Build Point
+   Cloud** and save it. **The project must already contain a finished point cloud before you
+   start the Classifier.** Then choose **Tools → Run Script** and select
    [`start_in_metashape.py`](start_in_metashape.py).
 4. The app opens. FlurSeg is already selected. Press **Klassifikation starten**
    (Start classification).

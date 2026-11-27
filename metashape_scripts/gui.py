@@ -383,10 +383,20 @@ def start():
             raise RuntimeError("Bitte zuerst das Projekt als .psx oder .psz speichern.")
         if document.read_only:
             raise RuntimeError("Das Projekt ist schreibgeschützt. Bitte schreibbar öffnen.")
-        if not (ROOT / ".venv/Scripts/python.exe").is_file():
-            raise RuntimeError("Bitte zuerst install.bat im Repository ausführen.")
         if not document.chunks:
             raise RuntimeError("Das Projekt enthält keine Chunks.")
+        # Explicit chunk selections are applied later, during export.
+        if not any(
+            stage1_export.source_point_cloud(chunk) is not None for chunk in document.chunks
+        ):
+            raise RuntimeError(
+                "Das Projekt enthält keine fertig berechnete Quellpunktwolke. "
+                "Bitte zuerst in Metashape «Workflow > Build Point Cloud» "
+                "(Punktwolke erstellen) ausführen und das Projekt speichern. "
+                "Danach den Classifier erneut starten."
+            )
+        if not (ROOT / ".venv/Scripts/python.exe").is_file():
+            raise RuntimeError("Bitte zuerst install.bat im Repository ausführen.")
         session = ROOT / "work" / "gui-sessions" / uuid.uuid4().hex
         session.mkdir(parents=True)
         check_installation(session)
