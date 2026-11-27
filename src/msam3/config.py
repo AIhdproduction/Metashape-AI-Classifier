@@ -215,9 +215,11 @@ class BuildingPostprocessConfig(StrictModel):
     enabled: bool = True
     ground_class: str = "ground"
     building_class: str = "building"
-    horizontal_radius_m: Positive = 0.75
-    min_vertical_drop_m: Annotated[float, Field(ge=0)] = 1.0
-    min_building_neighbors: Annotated[int, Field(ge=1)] = 4
+    horizontal_radius_m: Positive = 3.0
+    min_vertical_drop_m: Positive = 1.0
+    min_building_neighbors: Annotated[int, Field(ge=4, le=48)] = 8
+    max_roof_slope_degrees: Annotated[float, Field(gt=0, lt=90)] = 65.0
+    terrain_radius_m: Positive = 12.0
 
 
 class GroundPostprocessConfig(StrictModel):

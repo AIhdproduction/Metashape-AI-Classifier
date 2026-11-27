@@ -36,6 +36,28 @@ def test_raw_logits_presence_applied_once():
         raw_probabilities({}, (4, 4), 0.3)
 
 
+@pytest.mark.parametrize("threshold", [0.3, 0.9])
+def test_raw_logits_merge_multiple_mask_batches_and_keep_semantic_fallback(threshold):
+    # Eleven masks pass at 0.3. One winner sits in the first batch, another in the second.
+    mask_probs = torch.full((1, 12, 1, 3), 0.1)
+    mask_probs[0, 0, 0, 0] = 0.9
+    mask_probs[0, 9, 0, 1] = 0.9
+    mask_probs[0, 11, 0, 2] = 0.99
+    instance_scores = torch.full((1, 12, 1), 0.8)
+    instance_scores[0, 11, 0] = 0.2
+    outputs = {
+        "semantic_seg": torch.full((1, 1, 1, 3), torch.logit(torch.tensor(0.1))),
+        "pred_masks": torch.logit(mask_probs),
+        "pred_logits": torch.logit(instance_scores),
+        "presence_logit_dec": torch.tensor([[0.0]]),
+    }
+
+    probabilities = raw_probabilities(outputs, (2, 3), threshold)
+
+    row = [0.36, 0.36, 0.05] if threshold == 0.3 else [0.05, 0.05, 0.05]
+    torch.testing.assert_close(probabilities, torch.tensor([row, row]))
+
+
 def test_tile_coverage_and_max_merge(tmp_path):
     width, height = 1010, 20
     covered = np.zeros((height, width), int)

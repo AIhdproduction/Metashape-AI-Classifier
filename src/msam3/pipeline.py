@@ -115,7 +115,8 @@ def process_chunk(
     )
     points = np.asarray(cloud.points[indices])
     use_normals = settings.voting.use_incidence_weight or (
-        settings.postprocess.enabled and bool(settings.postprocess.geometry_rules)
+        settings.postprocess.enabled
+        and (settings.postprocess.building.enabled or bool(settings.postprocess.geometry_rules))
     )
     metashape_classes, colors, surface_normals = representative_attributes(
         directory / "dense.las",

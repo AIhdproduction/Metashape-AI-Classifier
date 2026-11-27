@@ -104,13 +104,15 @@ multiplied by a Hann window plus 1e-6 and accumulated. The confidence is the win
 the eleven accumulated scores. Below `flurseg.background_threshold` (0.3) a pixel is 255.
 
 A full score image of a 45 MP photo would need about 2 GB of VRAM. Instead the device keeps a
-band of one window height × image width × 11. After each row of windows the rows that no later
-window can touch are decided on the device, and only labels and confidence go to the CPU; then
-the band moves down. A test compares this with the full-buffer result.
+band of one window height × image width × 11. After each row of windows, the GPU decides the rows
+that no later window can touch, and the band moves down. If the RGB input and the label and
+confidence maps fit within 128 MiB, the GPU buffers them so transfers happen once per image
+instead of once per strip. Larger images stream by row.
 
-Inference uses float16 autocast by default (`flurseg.precision`), scores float32. On CUDA out of
-memory the window batch is halved and the windows are retried; at one window the run stops with
-a clear error. The batch is not part of the cache identity.
+Inference uses float16 autocast by default (`flurseg.precision`), with converted weights reused
+within an image and scores computed in float32. On CUDA out of memory, a buffered run first
+retries by streaming rows. A streaming run halves the window batch and retries. At one window,
+the run stops with a clear error. The batch is not part of the cache identity.
 
 The exported v1 weights keep a mask-annealing probability of 1e-4 in the last block. Transformers
 then rarely masks a query at random, as in the owner's reference code, so two fresh inferences can
@@ -149,12 +151,12 @@ confidence; otherwise the cached index is 255 (unknown).
 Tiles are 1008×1008 with 20% overlap. Edge tiles retain all image pixels. Overlapping
 **per-class probabilities are maximized before argmax** as requested; the reference segmentor
 averages overlaps, so this is a documented task-specific difference. Per-class image scores
-use a CPU disk mapping, while instance resizing is sequential to avoid hundreds of full-size
-GPU masks. All inference uses `torch.inference_mode` and bf16/fp16 CUDA autocast. Prompts are
-batched in groups of four by default (`sam.prompt_batch_size`); set this to one to reduce
-memory use; the shipped default.yml uses eight. Batched grounding and all four raw output shapes were checked on the local
-checkpoint with a real 1008-pixel drone-image tile on an RTX 4090. CUDA cache is released
-between newly segmented images.
+use a CPU disk mapping. The GPU resizes up to eight retained instance masks at once and merges
+each group into the running maximum. All inference uses `torch.inference_mode` and bf16/fp16 CUDA
+autocast. The shipped default.yml runs eight prompts at a time. A smaller
+`sam.prompt_batch_size` reduces memory use. Batched grounding and all four raw output shapes
+were checked on the local checkpoint with a real 1008-pixel drone-image tile on an RTX 4090.
+CUDA cache is released between newly segmented images.
 
 ## Spatial reduction, visibility and votes
 
@@ -193,9 +195,11 @@ codes to every original point, preserving source point order and attributes in s
 After voting, the enabled `postprocess` configuration applies an NPI-style neighbourhood filter
 to the representative cloud. Per-class rules remove low-confidence isolated points and fill only
 small, low-confidence holes surrounded by a sufficient share of one class. The road rule rejects
-local planes steeper than 40 degrees before filling road holes. The building rule changes a point
-labelled ground to building only when it is horizontally close to several building points at least
-one metre below it, which protects flat roofs. A report is written below each chunk as
+local planes steeper than 40 degrees before filling road holes. The last step reclassifies Ground
+inside a flat or pitched roof plane as Building. It requires nearby Building points on the same
+face to surround the candidate, an agreeing surface normal, and lower terrain in several nearby
+cells. It reads the existing Building labels for a single pass and uses the true vertical. A report
+is written below each chunk as
 `post_sam_filter/postprocess_report.json` before labels are propagated back to the full cloud.
 
 ### Ground from a terrain model
@@ -269,9 +273,9 @@ geocentric export; terrain alone would have leant 2.7 degrees with the slope. Th
 `post_sam_filter/postprocess_report.json` records the method, the tilt of the internal frame and
 the angle to the CRS vertical. Only a cloud without planar surfaces falls back to the CRS.
 
-`default.yml` (SAM 3) restores only unclassified building points. Metashape's internal frame is
-not levelled: 31.7 degrees in the 291-photo project. The older filters (DTM height, road slope,
-flat roofs) still work in that frame because their thresholds were calibrated there;
+`default.yml` (SAM 3) restores only unclassified building points through the per-class rules.
+Metashape's internal frame is not levelled: 31.7 degrees in the 291-photo project.
+The older filters (DTM height and road slope) still work in that frame because their thresholds were calibrated there;
 `postprocess.level_to_vertical: true` rotates all of them to the true vertical.
 
 ### FlurSeg profile

@@ -10,7 +10,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from msam3.cache import atomic_json
-from msam3.config import Classes, PostprocessConfig
+from msam3.config import Classes, GeometryReviewRule, PostprocessConfig
 
 LOG = logging.getLogger(__name__)
 
@@ -275,45 +275,6 @@ def _fill_unknown_planar_edges(points, labels, classes, config, batch_size):
     return Counter(int(code) for code in proposal[accepted])
 
 
-def _repair_flat_roofs(points, labels, classes, config, batch_size):
-    if not config.building.enabled:
-        return 0
-    names = [config.building.ground_class, config.building.building_class]
-    available = {item.name for item in classes.classes}
-    if not set(names).issubset(available):
-        return 0
-    ground, building = _class_codes(classes, names).values()
-    snapshot = labels.copy()
-    candidates = np.flatnonzero(snapshot == ground)
-    building_ids = np.flatnonzero(snapshot == building)
-    if not len(candidates) or not len(building_ids):
-        return 0
-    repaired = 0
-    # Query only known building points. Querying the whole cloud would let nearby roof
-    # points consume the neighbour slots and hide the building facade below a wide roof.
-    horizontal_tree = cKDTree(points[building_ids, :2])
-    neighbour_count = min(config.neighbors, len(building_ids))
-    for start in range(0, len(candidates), batch_size):
-        selected = candidates[start : start + batch_size]
-        distances, indices = horizontal_tree.query(
-            points[selected, :2],
-            k=neighbour_count,
-            distance_upper_bound=config.building.horizontal_radius_m,
-            workers=-1,
-        )
-        distances = np.asarray(distances).reshape(len(selected), -1)
-        indices = np.asarray(indices).reshape(len(selected), -1)
-        valid = (indices < len(building_ids)) & np.isfinite(distances)
-        safe = np.minimum(indices, len(building_ids) - 1)
-        neighbours = points[building_ids[safe]]
-        vertical_drop = points[selected, 2, None] - neighbours[:, :, 2]
-        support = np.sum(valid & (vertical_drop >= config.building.min_vertical_drop_m), axis=1)
-        replace = support >= config.building.min_building_neighbors
-        labels[selected[replace]] = building
-        repaired += int(replace.sum())
-    return repaired
-
-
 def _restore_bare_ground(labels, classes, config, source_ground_hint, colors, batch_size):
     """Correct non-green low vegetation on Metashape terrain candidates."""
     rule = config.color_ground
@@ -404,7 +365,9 @@ def _surface_support(points, normals, support, rule, up):
             yield kind, ids, radius
 
 
-def _plane_review(points, normals, candidates, strict, support_ids, radius, rule, batch_size):
+def _plane_review(
+    points, normals, candidates, strict, support_ids, radius, rule, batch_size, *, roof_up=None
+):
     """Return (accepted, residual) for candidates tested against one support surface."""
     accepted = np.zeros(len(candidates), dtype=bool)
     residuals = np.full(len(candidates), np.inf, dtype=np.float32)
@@ -435,36 +398,135 @@ def _plane_review(points, normals, candidates, strict, support_ids, radius, rule
         is_strict = is_strict[positions]
         safe = np.minimum(indices[positions], len(support_ids) - 1)
         neighbours = points[support_ids[safe]].astype(np.float64)
+        candidate = points[selected].astype(np.float64)
+        offsets = neighbours - candidate[:, None, :]
+        if roof_up is not None:
+            # A pitched roof can put two distinct faces inside the search radius.
+            # Limit the fit to neighbours consistent with the candidate's own face.
+            candidate_normals = normals[selected]
+            normal_offsets = np.abs(np.einsum("bki,bi->bk", offsets, candidate_normals))
+            normal_agreement = np.abs(
+                np.einsum("bki,bi->bk", normals[support_ids[safe]], candidate_normals)
+            )
+            valid &= (normal_offsets <= 2 * rule.max_plane_offset_m) & (normal_agreement >= 0.8)
+            count = valid.sum(axis=1)
         weights = valid[:, :, None]
-        mean = (neighbours * weights).sum(axis=1) / count[:, None]
+        count_safe = np.maximum(count, 1)
+        mean = (neighbours * weights).sum(axis=1) / count_safe[:, None]
         centered = (neighbours - mean[:, None, :]) * weights
-        covariance = np.einsum("bki,bkj->bij", centered, centered) / count[:, None, None]
+        covariance = np.einsum("bki,bkj->bij", centered, centered) / count_safe[:, None, None]
         eigenvalues, vectors = np.linalg.eigh(covariance)
         plane_normal = vectors[:, :, 0]
-        candidate = points[selected].astype(np.float64)
         residual = np.abs(np.einsum("bi,bi->b", candidate - mean, plane_normal))
         alignment = np.abs(np.einsum("bi,bi->b", normals[selected], plane_normal))
         # Directions of the support around the candidate, measured inside the fitted plane.
-        offsets = neighbours - candidate[:, None, :]
         along = np.einsum("bki,bi->bk", offsets, vectors[:, :, 2])
         across = np.einsum("bki,bi->bk", offsets, vectors[:, :, 1])
-        sectors = np.floor((np.arctan2(across, along) + np.pi) * 4 / np.pi).astype(np.int64) % 8
-        occupied = np.bitwise_or.reduce(np.where(valid, 1 << sectors, 0), axis=1)
-        coverage = _POPCOUNT[occupied]
+        angles = np.arctan2(across, along)
         good = eigenvalues[:, 1] >= rule.min_planar_spread_m**2
-        good &= np.where(
-            is_strict,
-            (residual <= rule.unknown_max_plane_offset_m)
-            & (alignment >= rule.unknown_min_normal_alignment)
-            & (coverage >= rule.unknown_min_coverage_sectors),
-            (residual <= rule.max_plane_offset_m)
-            & (alignment >= rule.min_normal_alignment)
-            & (coverage >= rule.min_coverage_sectors),
-        )
+        if roof_up is not None:
+            good &= count >= rule.min_support_neighbors
+            good &= np.abs(plane_normal @ roof_up) >= rule.normal_vertical_boundary
+            good &= eigenvalues[:, 0] <= rule.max_plane_offset_m**2
+            # A point beyond a roof edge sees all support in one half of the plane.
+            # Sort the support angles to check that no half of the plane is empty.
+            around = np.sort(np.where(valid, angles, np.pi * 3), axis=1)
+            last = np.take_along_axis(around, (count_safe - 1)[:, None], axis=1)[:, 0]
+            wrap = around[:, 0] + 2 * np.pi - last
+            consecutive = np.arange(around.shape[1] - 1) < (count - 1)[:, None]
+            gap = np.max(np.where(consecutive, np.diff(around, axis=1), 0), axis=1)
+            good &= np.maximum(gap, wrap) < np.pi - np.deg2rad(5)
+            good &= (residual <= rule.max_plane_offset_m) & (alignment >= rule.min_normal_alignment)
+        else:
+            sectors = np.floor((angles + np.pi) * 4 / np.pi).astype(np.int64) % 8
+            occupied = np.bitwise_or.reduce(np.where(valid, 1 << sectors, 0), axis=1)
+            coverage = _POPCOUNT[occupied]
+            good &= np.where(
+                is_strict,
+                (residual <= rule.unknown_max_plane_offset_m)
+                & (alignment >= rule.unknown_min_normal_alignment)
+                & (coverage >= rule.unknown_min_coverage_sectors),
+                (residual <= rule.max_plane_offset_m)
+                & (alignment >= rule.min_normal_alignment)
+                & (coverage >= rule.min_coverage_sectors),
+            )
         local = start + positions
         accepted[local] = good
         residuals[local[good]] = residual[good]
     return accepted, residuals
+
+
+def _repair_roof_ground(points, labels, normals, classes, config, batch_size, up=None):
+    """Relabel Ground only inside a measured roof plane above surrounding terrain."""
+    rule = config.building
+    if not rule.enabled or normals is None:
+        return 0
+    codes = _available_codes(classes, [rule.ground_class, rule.building_class])
+    if len(codes) != 2:
+        return 0
+    ground, building = codes[rule.ground_class], codes[rule.building_class]
+    candidates = np.flatnonzero(labels == ground)
+    support = np.flatnonzero(labels == building)
+    if not len(candidates) or not len(support):
+        return 0
+    up = np.asarray([0, 0, 1] if up is None else up, dtype=np.float32)
+    min_vertical = float(np.cos(np.deg2rad(rule.max_roof_slope_degrees)))
+    candidates = candidates[np.abs(normals[candidates] @ up) >= min_vertical]
+    support = support[np.abs(normals[support] @ up) >= min_vertical]
+    plane = GeometryReviewRule(
+        neighbors=48,
+        min_support_neighbors=rule.min_building_neighbors,
+        normal_vertical_boundary=min_vertical,
+        max_plane_offset_m=0.16,
+        min_normal_alignment=0.85,
+        horizontal_radius_m=rule.horizontal_radius_m,
+        support_voxel_m=0.25,
+    )
+    support = _thin_support(points, support, plane.support_voxel_m)
+    if not len(candidates) or len(support) < plane.min_support_neighbors:
+        return 0
+    matches, _ = _plane_review(
+        points,
+        normals,
+        candidates,
+        np.zeros(len(candidates), dtype=bool),
+        support,
+        plane.horizontal_radius_m,
+        plane,
+        batch_size,
+        roof_up=up,
+    )
+    candidates = candidates[matches]
+    if not len(candidates):
+        return 0
+
+    # A lower reference must come from several distinct terrain cells. A building wall
+    # alone, or a single low point, is not evidence that a nearby Ground point is a roof.
+    terrain_names = [rule.ground_class, "road", "sidewalk", "paved_surface"]
+    terrain_codes = set(_available_codes(classes, terrain_names).values()) - {building}
+    terrain = np.flatnonzero(np.isin(labels, list(terrain_codes)))
+    rotation = level_rotation(up).T.astype(np.float32)
+    nodes = _cell_percentile_nodes(points[terrain] @ rotation, 2.0, 0.1, 4)
+    if len(nodes) < 3:
+        return 0
+    node_tree = cKDTree(nodes[:, :2])
+    changed = 0
+    geometry_batch = min(batch_size, 20_000)
+    for start in range(0, len(candidates), geometry_batch):
+        selected = candidates[start : start + geometry_batch]
+        level = points[selected] @ rotation
+        distance, nearest = node_tree.query(
+            level[:, :2],
+            k=min(64, len(nodes)),
+            distance_upper_bound=rule.terrain_radius_m,
+            workers=-1,
+        )
+        heights = nodes[np.minimum(nearest, len(nodes) - 1), 2]
+        lower = np.isfinite(distance) & (level[:, 2, None] - heights >= rule.min_vertical_drop_m)
+        accepted = selected[lower.sum(axis=1) >= 3]
+        labels[accepted] = building
+        changed += len(accepted)
+    return changed
 
 
 def _review_geometry_by_class(points, labels, normals, classes, config, batch_size, up=None):
@@ -1121,7 +1183,6 @@ def apply_postprocess(
     bare_ground = _restore_bare_ground(
         labels, classes, config, source_ground_hint, colors, batch_size
     )
-    roofs = _repair_flat_roofs(points, labels, classes, config, batch_size)
     other_buildings = _restore_other_buildings(points, labels, classes, config, batch_size)
     ground_height_rejected = _reject_ground_height_outliers(
         points, labels, classes, config, batch_size
@@ -1148,8 +1209,9 @@ def apply_postprocess(
     geometry_changes = _review_geometry_by_class(
         points, labels, normals, classes, config, batch_size, up
     )
-    # Last: the neighbourhood filters would dissolve the low vegetation left between ground.
+    # Run after the terrain pass, which can give low vegetation a new Ground label.
     dtm_ground = _restore_dtm_ground(points, labels, classes, config, batch_size, up)
+    roof_changes = _repair_roof_ground(points, labels, normals, classes, config, batch_size, up)
     output = Path(directory) / config.output_subdir
     output.mkdir(parents=True, exist_ok=True)
     atomic_json(
@@ -1164,7 +1226,7 @@ def apply_postprocess(
             "holes_filled": dict(sorted(filled.items())),
             "unknown_edges_filled": dict(sorted(unknown_edges.items())),
             "planar_unknown_edges_filled": dict(sorted(planar_edges.items())),
-            "flat_roof_ground_to_building": roofs,
+            "roof_ground_to_building": roof_changes,
             "color_vegetation_to_ground": bare_ground,
             "other_to_building": other_buildings,
             "geometry_reclassified": geometry_changes,

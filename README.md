@@ -4,9 +4,8 @@
 
 Classify a finished Metashape dense point cloud from its original photographs. You choose the model:
 
-- **FlurSeg** (default): our own model, **6.3× faster** per photo and **4.7× faster** in total
-  in a 462-photo Metashape run (51 min instead of about 4 h), 11 fixed classes.
-- **SAM 3** (option): finds **your own classes** through English text prompts, and is much slower.
+- **FlurSeg** (default): our model with 11 fixed classes, designed for fast outdoor classification.
+- **SAM 3** (option): finds **your own classes** through English text prompts.
 
 Everything else is the same for both. The tool creates a **new point-cloud asset** in the same
 chunk, saves the project and writes a classified LAS 1.4 file with class legends. The original
@@ -108,11 +107,8 @@ py -3.12 -m venv .venv
 
 | | **FlurSeg v1** (default) | **SAM 3** (option) |
 |---|---|---|
-| Segmentation and voting per photo | 4.7 s, 6.3× faster (462 photos, see below) | 29.2 s |
-| Complete run, 462 photos | 51 min, 4.7× faster | about 4 h |
 | Classes | 11, fixed in the weights | 18 standard classes, editable, plus your own |
 | Own classes or prompts | no | yes, English prompts |
-| Accuracy in the model card's test | mIoU 0.732 | mIoU 0.833, more accurate |
 | Thin objects (kerbs, markings, covers) | weaker, sensitive to resolution | usually better |
 | Weights | public, 1.26 GB | access request at Meta |
 | Files | `models/flurseg/v1/` | `models/sam3.pt` |
@@ -122,73 +118,35 @@ py -3.12 -m venv .venv
 Take **FlurSeg** for normal production runs. Take **SAM 3** when you need a class that FlurSeg
 does not have, or when accuracy on small objects matters more than time.
 
-### Measured Metashape run: 462 photos
+### Latest Metashape benchmark (27 November 2026)
 
-Both runs used the same project with **462 photos** of 20 MP and **74,913,474 points**
-(60,829,352 voting points) on an **RTX 4090**, profile *balanced*. SAM 3 searched its 18
-standard classes with 78 prompts; FlurSeg ran in fp16.
+Both models processed the same **462 photos** (5280 × 3956) and **74,913,474 points**
+(60,829,352 voting points) on an **NVIDIA RTX 4090**. All photos were processed fresh.
+FlurSeg used the 4,000-pixel profile, FP16 and batches of four windows. SAM 3 used 75% image
+scale, BF16 and batches of eight prompts (78 prompts across 18 classes).
 
 | Step | FlurSeg v1 | SAM 3 |
 |---|---:|---:|
 | Preparation | 00:00:02 | 00:00:02 |
-| Export from Metashape | 00:04:05 | 00:04:12 |
-| **Segmentation, voting and post-filter** | **00:44:44** | **≈ 03:52:48** |
-| Import and LAS | 00:02:11 | 00:02:25 |
-| **Total** | **00:51:03** | **≈ 03:59:27** |
-| Per photo (segmentation and voting) | 4.67 s | 29.23 s |
+| Metashape export | 00:03:48 | 00:03:46 |
+| Classification stage (including voting and post-filter) | 00:39:40 | 03:21:22 |
+| ↳ Image segmentation and mask preparation | 00:22:34 | 03:03:13 |
+| ↳ Point voting | 00:09:27 | 00:09:26 |
+| ↳ Post-filter | 00:05:17 | 00:06:23 |
+| Metashape import and final LAS | 00:01:57 | 00:02:25 |
+| **Total wall time** | **00:45:28** | **03:27:35** |
+| Segmentation and voting per photo | 4.16 s | 25.02 s |
 
-FlurSeg was **6.3× faster** per photo and **4.7× faster** for the complete run. Export, import,
-the post-filter (5–6 min for 61 million voting points) and the LAS take the same time for both
-models, so the total factor is smaller than the per-photo factor. A Windows update ended the
-SAM 3 run after 451 of 462 photos; the next run took them from the cache. Its total is therefore
-assembled: 451 fresh photos at 29.23 s each, and export, post-filter and import of the resumed
-run. The app had estimated 64 min for FlurSeg and 3 h 51 min for SAM 3.
+On this project, FlurSeg processed about **6.0× as many photos per second** during segmentation
+and voting. Its complete run took **22% of the SAM 3 time**. Segmentation includes image loading,
+mask generation, cache writes and mask preparation. Classification-stage totals also include
+worker setup and intermediate point-cloud output. The app estimates time from the image window
+or tile count and previous runs.
 
-### Measured Metashape run: 291 photos
-
-Both completed runs used the same `Test_script` project with **291 photos** and **83,003,684
-points**. The app's final screens report these times:
-
-| Step | FlurSeg v1 | SAM 3 |
-|---|---:|---:|
-| Preparation | 00:00:17 | 00:00:13 |
-| Export from Metashape | 00:02:15 | 00:02:12 |
-| **Segmentation and voting** | **00:19:41** | **01:59:34** |
-| Import and LAS | 00:02:19 | 00:02:46 |
-| **Total** | **00:24:33** | **02:04:47** |
-
-In this run, FlurSeg was **6.1× faster** in segmentation and voting; the complete
-workflow was **5.1× faster**. These are observations from one project, not a general speed
-guarantee. The models used different class lists; these screens do not measure classification
-accuracy. The screenshots do not show the hardware or resolution profile.
-
-An [additional point-cloud comparison](docs/benchmarks/flurseg-filter-291-images.md) records
-how the updated FlurSeg filters agree with the existing SAM 3 result on this project.
-
-**FlurSeg result**
-
-![FlurSeg completed run with 291 photos, 83,003,684 points and a total time of 00:24:33](docs/benchmarks/flurseg-291-images.png)
-
-**SAM 3 result**
-
-![SAM 3 completed run with 291 photos, 83,003,684 points and a total time of 02:04:47](docs/benchmarks/sam3-291-images.png)
-
-### Other speed measurements
-
-- The **15× figure** covers segmentation in the SAMcloud drone test: approx. 2 s instead of 30 s
-  per photo. It does not measure export, point voting or import, and the factor varies with
-  the resolution.
-- The [model card](https://huggingface.co/AIhdproduction/Flurseg) reports another benchmark on
-  9 images: **7.6× faster** (6.0 s instead of 45.6 s per image). There **SAM 3 was more accurate**
-  (mIoU 0.833 against 0.732).
-- The 15× and 7.6× figures come from other tests. The 291-photo run above is a measurement in
-  this Metashape pipeline and includes a separate end-to-end comparison.
-- The app's time estimate does not use these factors. It counts image windows or tiles and
-  takes the seconds per window or tile from this project's earlier runs with the same model,
-  otherwise from other projects' runs on this PC. Without any run it assumes 0.067 s per FlurSeg
-  window and 1.46 s per SAM 3 tile, measured in the 462-photo run on an RTX 4090; for that run
-  this gives 51.5 min and 4.0 h. Export, import and LAS are counted as 2 s per photo (at least
-  3, at most 20 min). It is labelled as an estimate; another GPU or other photo sizes change it.
+These runs used the updated inference paths. They were timed before the final Ground-to-Building
+roof filter correction. The measurements describe speed on this project. The two models have
+different class sets and the runs were not scored for class accuracy.
+[Recorded timings](docs/benchmarks/metashape-462-2026-11-27.json)
 
 ### FlurSeg resolution profiles
 
@@ -562,8 +520,8 @@ classified cloud before delivery.
 Voting representatives and their search trees need RAM; `voting.max_ram_gb` governs the vote
 matrix only. Very large clouds may need larger voxels.
 
-The 291-photo run above completed the real Metashape workflow for both models. The earlier
-automated verification record is in [docs/verification.md](docs/verification.md); additional
+The latest benchmark above completed the real Metashape workflow for both models. The
+automated verification record is in [docs/verification.md](docs/verification.md). Additional
 dataset-specific checks are listed in [docs/method.md](docs/method.md#to-be-verified-on-first-real-run).
 
 ## Development

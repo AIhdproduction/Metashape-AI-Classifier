@@ -185,7 +185,7 @@ def test_postprocess_keeps_a_dense_cluster_from_every_class(tmp_path):
     assert np.all(filtered == 5)
 
 
-def test_postprocess_assigns_wide_flat_roof_ground_to_building(tmp_path):
+def test_postprocess_does_not_promote_ground_using_only_buildings_below_it(tmp_path):
     roof = np.array(
         [[x, y, 3.0] for x in (-0.1, 0.0, 0.1) for y in (-0.1, 0.0, 0.1)],
         dtype=np.float32,
@@ -204,9 +204,13 @@ def test_postprocess_assigns_wide_flat_roof_ground_to_building(tmp_path):
         "min_building_neighbors": 4,
     }
 
-    filtered = apply_postprocess(points, labels, shares, classes(), config, tmp_path, batch_size=32)
+    normals = np.tile([0, 0, 1], (len(points), 1))
+    normals[len(roof) :] = (1, 0, 0)
+    filtered = apply_postprocess(
+        points, labels, shares, classes(), config, tmp_path, batch_size=32, normals=normals
+    )
 
-    assert np.all(filtered[: len(roof)] == 6)
+    assert np.all(filtered[: len(roof)] == 2)
 
 
 def test_postprocess_splits_vegetation_at_height_above_local_terrain(tmp_path):

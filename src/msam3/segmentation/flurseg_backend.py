@@ -19,6 +19,8 @@ from msam3.segmentation.windows import scaled_size, window_starts
 LOG = logging.getLogger(__name__)
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+IMAGE_BUFFER_BUDGET_BYTES = 128 * 1024**2
+IMAGE_BUFFER_BYTES_PER_PIXEL = 3 + 1 + 4  # RGB, class index, float32 confidence.
 
 
 def check_cuda(gpu: GPUConfig) -> None:
@@ -104,33 +106,61 @@ class FlurSegBackend:
         size = scaled_size(image.width, image.height, self.settings.resolution)
         if size != image.size:
             image = image.resize(size, Image.Resampling.BILINEAR)
-        return self._segment_pixels(np.asarray(image))
+        pixels = np.asarray(image)
+        buffer_bytes = image.width * image.height * IMAGE_BUFFER_BYTES_PER_PIXEL
+        if self.device.type == "cuda" and buffer_bytes <= IMAGE_BUFFER_BUDGET_BYTES:
+            try:
+                return self._segment_pixels(pixels, buffer_image=True)
+            except torch.OutOfMemoryError:
+                # Leave the handler before retrying so the failed tensors can be released.
+                pass
+            torch.cuda.empty_cache()
+            LOG.info("GPU memory is short: streaming FlurSeg image rows")
+        return self._segment_pixels(pixels, buffer_image=False)
 
-    def _segment_pixels(self, pixels: np.ndarray):
+    def _segment_pixels(self, pixels: np.ndarray, *, buffer_image: bool):
+        half = self.settings.precision == "fp16" and self.device.type == "cuda"
+        # Keep converted weights available across all window batches from this image.
+        with torch.autocast("cuda", dtype=torch.float16, enabled=half):
+            return self._blend_windows(pixels, buffer_image=buffer_image)
+
+    def _blend_windows(self, pixels: np.ndarray, *, buffer_image: bool):
         height, width = pixels.shape[:2]
         window, band_width = self.window, max(width, self.window)
         rows = window_starts(height, window, self.stride)
         columns = window_starts(width, window, self.stride)
         band = torch.zeros((self.classes, window, band_width), device=self.device)
         weight = torch.zeros((window, band_width), device=self.device)
-        labels = np.empty((height, width), np.uint8)
-        confidence = np.empty((height, width), np.float32)
+        output_device = self.device if buffer_image else "cpu"
+        labels = torch.empty((height, width), dtype=torch.uint8, device=output_device)
+        confidence = torch.empty((height, width), dtype=torch.float32, device=output_device)
+        device_pixels = None
+        if buffer_image:
+            device_pixels = torch.from_numpy(np.array(pixels)).permute(2, 0, 1).to(self.device)
         for index, top in enumerate(rows):
-            strip = torch.from_numpy(np.array(pixels[top : top + window]))
-            self._add_row(strip.permute(2, 0, 1).to(self.device), columns, band, weight)
+            if device_pixels is None:
+                strip = torch.from_numpy(np.array(pixels[top : top + window]))
+                strip = strip.permute(2, 0, 1).to(self.device)
+            else:
+                strip = device_pixels[:, top : top + window]
+            self._add_row(strip, columns, band, weight, retry_smaller=not buffer_image)
             last = index + 1 == len(rows)
             done = height - top if last else rows[index + 1] - top
-            decided = self._decide(band[:, :done, :width], weight[:done, :width])
-            labels[top : top + done], confidence[top : top + done] = decided
+            row_labels, row_confidence = self._decide(band[:, :done, :width], weight[:done, :width])
+            labels[top : top + done].copy_(row_labels)
+            confidence[top : top + done].copy_(row_confidence)
             if not last:
                 keep = window - done
                 band[:, :keep] = band[:, done:].clone()
                 band[:, keep:] = 0
                 weight[:keep] = weight[done:].clone()
                 weight[keep:] = 0
-        return labels, confidence
+        confidence_array = confidence.cpu().numpy()
+        if not np.isfinite(confidence_array).all():
+            raise RuntimeError("FlurSeg returned invalid scores; try flurseg.precision: fp32")
+        return labels.cpu().numpy(), confidence_array
 
-    def _add_row(self, strip, columns, band, weight):
+    def _add_row(self, strip, columns, band, weight, *, retry_smaller: bool):
         done = 0
         while done < len(columns):
             batch = columns[done : done + self.batch_size]
@@ -138,6 +168,8 @@ class FlurSegBackend:
             try:
                 scores = self._predict(strip, batch)
             except torch.OutOfMemoryError:
+                if not retry_smaller:
+                    raise
                 # Retry outside the handler: its traceback still holds the failed tensors.
                 pass
             if scores is None:
@@ -148,6 +180,7 @@ class FlurSegBackend:
                     )
                 self.batch_size = len(batch) // 2
                 if self.device.type == "cuda":
+                    torch.clear_autocast_cache()
                     torch.cuda.empty_cache()
                 LOG.warning("GPU memory is short: FlurSeg window batch is now %d", self.batch_size)
                 continue
@@ -166,10 +199,9 @@ class FlurSegBackend:
             # Zero after normalisation, i.e. the mean colour, as in the training pipeline.
             padding = (0, self.window - tile.shape[2], 0, self.window - tile.shape[1])
             tiles.append(functional.pad(tile, padding))
-        half = self.settings.precision == "fp16" and self.device.type == "cuda"
-        with torch.autocast("cuda", dtype=torch.float16, enabled=half):
-            output = self.model(pixel_values=torch.stack(tiles))
-        scores = semantic_scores(output, self.window)
+        output = self.model(pixel_values=torch.stack(tiles))
+        with torch.autocast("cuda", enabled=False):
+            scores = semantic_scores(output, self.window)
         if scores.shape[1] != self.classes:
             raise RuntimeError(f"FlurSeg returned {scores.shape[1]} instead of {self.classes}")
         return scores
@@ -178,8 +210,6 @@ class FlurSegBackend:
         scores = totals / weight.clamp_min(1e-6)
         best, labels = scores.max(dim=0)
         confidence = best / scores.sum(dim=0).clamp_min(1e-6)
-        if not torch.isfinite(confidence).all():
-            raise RuntimeError("FlurSeg returned invalid scores; try flurseg.precision: fp32")
         labels = labels.to(torch.uint8)
         labels[confidence < self.settings.background_threshold] = 255
-        return labels.cpu().numpy(), confidence.float().cpu().numpy()
+        return labels, confidence

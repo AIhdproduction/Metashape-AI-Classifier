@@ -126,9 +126,11 @@ postprocess:
     enabled: true
     ground_class: "ground"
     building_class: "building"
-    horizontal_radius_m: 2.0 # Ground points high above several building points are flat-roof points, including roof interiors.
+    horizontal_radius_m: 3.0 # Fill Ground holes surrounded by a supported roof plane.
     min_vertical_drop_m: 1.0
-    min_building_neighbors: 4
+    min_building_neighbors: 8
+    max_roof_slope_degrees: 65
+    terrain_radius_m: 12.0 # Require independent lower ground nearby.
   ground:
     enabled: true
     ground_class: "ground"

@@ -85,6 +85,39 @@ def test_band_buffer_equals_full_buffer(width, height, batch):
     np.testing.assert_allclose(confidence, expected_confidence, atol=2e-5)
 
 
+def test_buffered_transfers_match_streaming_with_overlapping_windows():
+    engine = backend()
+    pixels = np.asarray(photo(101, 119))
+    streamed = engine._segment_pixels(pixels, buffer_image=False)
+    buffered = engine._segment_pixels(pixels, buffer_image=True)
+    np.testing.assert_array_equal(buffered[0], streamed[0])
+    np.testing.assert_array_equal(buffered[1], streamed[1])
+
+
+def test_segment_retries_streaming_when_image_buffers_do_not_fit(monkeypatch):
+    engine = backend()
+    segment_pixels = engine._segment_pixels
+    engine.device = torch.device("cuda")
+    attempts = []
+    image = photo(45, 51)
+    expected = backend().segment(image)
+
+    def segment(pixels, *, buffer_image):
+        attempts.append(buffer_image)
+        if buffer_image:
+            raise torch.OutOfMemoryError("synthetic image-buffer allocation failure")
+        engine.device = torch.device("cpu")
+        return segment_pixels(pixels, buffer_image=False)
+
+    monkeypatch.setattr(engine, "_segment_pixels", segment)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
+    result = engine.segment(image)
+
+    assert attempts == [True, False]
+    np.testing.assert_array_equal(result[0], expected[0])
+    np.testing.assert_array_equal(result[1], expected[1])
+
+
 def test_small_image_is_padded_with_the_mean_colour_after_normalisation():
     model = FakeModel()
     engine = backend(model)

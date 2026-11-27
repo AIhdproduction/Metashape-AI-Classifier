@@ -10,9 +10,9 @@ from PIL import Image
 
 from msam3.config import Classes, GPUConfig, SAMConfig
 from msam3.segmentation.model_files import require_checkpoint
-from msam3.segmentation.segearth_fusion import fuse_prompt
 
 LOG = logging.getLogger(__name__)
+INSTANCE_MASK_BATCH_SIZE = 8
 
 
 def check_gpu(config: GPUConfig) -> None:
@@ -48,19 +48,21 @@ def raw_probabilities(outputs: dict, shape: tuple[int, int], threshold: float):
         raise RuntimeError("Unexpected SAM 3 instance/logit shape")
     if presence.numel() != 1:
         raise RuntimeError("Expected one SAM 3 presence score per prompt")
-    sem = functional.interpolate(semantic.float(), shape, mode="bilinear", align_corners=False)[
+    result = functional.interpolate(semantic.float(), shape, mode="bilinear", align_corners=False)[
         0, 0
     ].sigmoid()
     scores = logits[0, :, 0].sigmoid().float()
-    result = sem.clone()
-    # Resize one retained instance at a time: hundreds of full-size masks can exhaust VRAM.
-    for index in torch.nonzero(scores >= threshold).flatten():
-        mask = functional.interpolate(
-            masks[:, index : index + 1].float(), shape, mode="bilinear", align_corners=False
-        )[0, 0].sigmoid()
-        result = torch.maximum(result, mask * scores[index])
-    empty = result.new_empty((0, *shape))
-    return fuse_prompt(result, empty, scores[:0], presence[0], threshold)
+    retained = torch.nonzero(scores >= threshold).flatten()
+    # Resize a bounded group at a time to keep full-resolution mask allocations small.
+    for indices in retained.split(INSTANCE_MASK_BATCH_SIZE):
+        if indices.numel() == 0:
+            break
+        resized = functional.interpolate(
+            masks[:, indices].float(), shape, mode="bilinear", align_corners=False
+        )[0].sigmoid()
+        best = (resized * scores[indices, None, None]).amax(dim=0)
+        result = torch.maximum(result, best)
+    return result * presence[0]
 
 
 class SAM3Backend:

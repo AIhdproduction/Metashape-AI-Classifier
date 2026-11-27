@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-27",
+  "timezone": "Europe/Zurich",
+  "hardware": "NVIDIA GeForce RTX 4090",
+  "photos": 462,
+  "photo_size_pixels": [
+    5280,
+    3956
+  ],
+  "point_count": 74913474,
+  "voting_point_count": 60829352,
+  "scope": "Fresh full Metashape runs with updated inference, before the final roof-filter correction.",
+  "runs": {
+    "flurseg": {
+      "profile": "balanced",
+      "settings": {
+        "resolution": "balanced",
+        "window_batch_size": 4,
+        "precision": "fp16",
+        "background_threshold": 0.3,
+        "min_mask_confidence": 0.4
+      },
+      "model_class_count": 11,
+      "sam_prompt_count": 0,
+      "fresh_photos": 462,
+      "cached_photos": 0,
+      "launcher_seconds": {
+        "prepare": 2.189,
+        "export": 228.327,
+        "classify": 2380.47,
+        "import": 116.546
+      },
+      "wall_seconds": 2727.532,
+      "stage2_seconds": {
+        "preparation": 75.76,
+        "segmentation": 1354.108,
+        "voting": 566.95,
+        "postprocess": 317.068,
+        "output": 38.749,
+        "stage2": 2355.486
+      },
+      "segmentation_and_voting_seconds_per_photo": 4.158135
+    },
+    "sam3": {
+      "profile": "balanced",
+      "settings": {
+        "input_size": 1008,
+        "prompt_batch_size": 8,
+        "image_scale": 0.75,
+        "tile_overlap": 0.2,
+        "instance_conf_threshold": 0.3,
+        "background_threshold": 0.3
+      },
+      "model_class_count": 18,
+      "sam_prompt_count": 78,
+      "fresh_photos": 462,
+      "cached_photos": 0,
+      "launcher_seconds": {
+        "prepare": 2.163,
+        "export": 225.865,
+        "classify": 12081.833,
+        "import": 144.919
+      },
+      "wall_seconds": 12454.78,
+      "stage2_seconds": {
+        "preparation": 76.102,
+        "segmentation": 10993.07,
+        "voting": 566.419,
+        "postprocess": 383.004,
+        "output": 33.933,
+        "stage2": 12055.834
+      },
+      "segmentation_and_voting_seconds_per_photo": 25.02054
+    }
+  }
+}
